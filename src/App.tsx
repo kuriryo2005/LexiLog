@@ -260,6 +260,15 @@ export default function App() {
     }
 
     setLoading(true);
+    if (user) {
+      addDoc(collection(db, "search_history"), {
+        word: queryStr,
+        userId: user.uid,
+        userEmail: user.email,
+        timestamp: Date.now(),
+        mode: dictionaryMode
+      }).catch(err => console.error("履歴の保存に失敗:", err));
+    }
     setStreamingOutput("");
     setIsStreaming(true);
     setSuggestions([]);
