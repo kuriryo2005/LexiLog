@@ -1,0 +1,6 @@
+{
+  "name": "LexiLog",
+  "description": "A simple English word search and learning app. Search words to see meanings, grammar, examples, and more. Save words to a daily list to track your progress.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // --- Global Safety Net ---
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-|]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidWord(data) {
+      return data.word is string && data.word.size() > 0 && data.word.size() <= 500 &&
+             data.meaning is string && data.meaning.size() > 0 && data.meaning.size() <= 1000 &&
+             data.grammar is string && data.grammar.size() <= 100 &&
+             data.userId == request.auth.uid &&
+             data.timestamp is number &&
+             (data.get('mode', '一般') in ['一般', '学術（Academic）']) &&
+             (!('examples' in data) || (data.examples is list && data.examples.size() <= 10)) &&
+             (!('specializedContexts' in data) || (data.specializedContexts is list && data.specializedContexts.size() <= 5)) &&
+             (!('synonyms' in data) || (data.synonyms is list && data.synonyms.size() <= 10)) &&
+             (!('reviewHistory' in data) || (data.reviewHistory is list && data.reviewHistory.size() <= 1000)) &&
+             (!('nextReviewAt' in data) || (data.nextReviewAt is number));
+    }
+
+    function isValidCache(data) {
+      return data.word is string && data.word.size() > 0 && data.word.size() <= 500 &&
+             data.meaning is string && data.meaning.size() > 0 && data.meaning.size() <= 1000 &&
+             (!('specializedContexts' in data) || (data.specializedContexts is list && data.specializedContexts.size() <= 5));
+    }
+
+    // --- Collections ---
+
+    match /words/{wordId} {
+      allow read: if isSignedIn() && existing().userId == request.auth.uid;
+      
+      allow create: if isSignedIn() && 
+                      isValidId(wordId) && 
+                      isValidWord(incoming()) &&
+                      incoming().keys().hasAll(['word', 'meaning', 'userId', 'timestamp']);
+      
+      allow update: if isSignedIn() && 
+                      existing().userId == request.auth.uid &&
+                      isValidWord(incoming()) &&
+                      // Immutability check
+                      incoming().userId == existing().userId &&
+                      incoming().timestamp == existing().timestamp &&
+                      (
+                        // Action: Full Update (content)
+                        incoming().diff(existing()).affectedKeys().hasOnly([
+                          'word', 'meaning', 'grammar', 'category', 'etymology', 
+                          'nuance', 'specializedContexts', 'examples', 'synonyms', 
+                          'antonyms', 'etymologyNodes', 'mode', 'nextReviewAt', 'aiAnalysis'
+                        ]) ||
+                        // Action: Review Session
+                        incoming().diff(existing()).affectedKeys().hasOnly([
+                          'reviewHistory', 'nextReviewAt', 'aiAnalysis'
+                        ])
+                      );
+      
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /dictionary_cache/{cacheKey} {
+      // Direct access is public for performance
+      allow get: if true;
+      // Listing the cache requires authentication
+      allow list: if isSignedIn();
+      // Writing to cache requires being signed in and valid data
+      allow create: if isSignedIn() && isValidId(cacheKey) && isValidCache(incoming());
+      // Updates are restricted to prevent random poisoning
+      allow update: if isSignedIn() && isValidId(cacheKey) && isValidCache(incoming());
+    }
+  }
+}

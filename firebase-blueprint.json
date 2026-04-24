@@ -1,0 +1,110 @@
+{
+  "entities": {
+    "Word": {
+      "title": "Word",
+      "description": "A saved English word with its details and review history.",
+      "type": "object",
+      "properties": {
+        "word": { "type": "string", "description": "The English word." },
+        "meaning": { "type": "string", "description": "Japanese translation." },
+        "grammar": { "type": "string", "description": "Part of speech." },
+        "category": { "type": "string", "description": "Professional field or general category." },
+        "etymology": { "type": "string", "description": "Origin of the word." },
+        "nuance": { "type": "string", "description": "Semantic nuances and usage differences." },
+        "userId": { "type": "string", "description": "The UID of the owner." },
+        "timestamp": { "type": "number", "description": "Creation timestamp in ms." },
+        "mode": { "type": "string", "enum": ["一般", "学術（Academic）"], "description": "Search mode." },
+        "examples": { 
+          "type": "array", 
+          "items": { "type": "string" },
+          "description": "Example English/Japanese pairs."
+        },
+        "specializedContexts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string" },
+              "context": { "type": "string" }
+            }
+          }
+        },
+        "synonyms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "word": { "type": "string" },
+              "translation": { "type": "string" }
+            }
+          }
+        },
+        "antonyms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "word": { "type": "string" },
+              "translation": { "type": "string" }
+            }
+          }
+        },
+        "etymologyNodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "word": { "type": "string" },
+              "meaning": { "type": "string" },
+              "root": { "type": "string" },
+              "relation": { "type": "string" }
+            }
+          }
+        },
+        "reviewHistory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "rating": { "type": "number" },
+              "timestamp": { "type": "number" }
+            }
+          }
+        },
+        "nextReviewAt": { "type": "number", "description": "Scheduled next review time." },
+        "aiAnalysis": { "type": "string", "description": "AI's feedback on retention." }
+      },
+      "required": ["word", "meaning", "grammar", "userId", "timestamp"]
+    },
+    "DictionaryCache": {
+      "title": "DictionaryCache",
+      "description": "Cached result from Gemini for a specific word and mode.",
+      "type": "object",
+      "properties": {
+        "word": { "type": "string" },
+        "meaning": { "type": "string" },
+        "grammar": { "type": "string" },
+        "category": { "type": "string" },
+        "etymology": { "type": "string" },
+        "nuance": { "type": "string" },
+        "specializedContexts": { "type": "array" },
+        "examples": { "type": "array" },
+        "synonyms": { "type": "array" },
+        "antonyms": { "type": "array" },
+        "etymologyNodes": { "type": "array" },
+        "cachedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["word", "meaning", "grammar"]
+    }
+  },
+  "firestore": {
+    "/words/{wordId}": {
+      "schema": "Word",
+      "description": "User's saved vocabulary list."
+    },
+    "/dictionary_cache/{cacheKey}": {
+      "schema": "DictionaryCache",
+      "description": "Global cache for AI-generated dictionary entries."
+    }
+  }
+}
