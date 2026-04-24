@@ -249,6 +249,16 @@ export default function App() {
     const query = (overrideQuery || searchQuery).trim();
     if (!query) return;
 
+    if (user) {
+      addDoc(collection(db, "search_history"), {
+        word: query, // ここをqueryにする
+        userId: user.uid,
+        userEmail: user.email,
+        timestamp: Date.now(),
+        mode: dictionaryMode
+      }).catch(err => console.error("履歴の保存に失敗:", err));
+    }
+
     // Fast Path: Check Local Cache First
     const cached = getCachedWord(query, dictionaryMode);
     if (cached) {
@@ -260,15 +270,6 @@ export default function App() {
     }
 
     setLoading(true);
-    if (user) {
-      addDoc(collection(db, "search_history"), {
-        word: queryStr,
-        userId: user.uid,
-        userEmail: user.email,
-        timestamp: Date.now(),
-        mode: dictionaryMode
-      }).catch(err => console.error("履歴の保存に失敗:", err));
-    }
     setStreamingOutput("");
     setIsStreaming(true);
     setSuggestions([]);
