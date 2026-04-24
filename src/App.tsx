@@ -244,14 +244,16 @@ export default function App() {
     })();
   };
 
-  const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
+const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
     e?.preventDefault();
+    // 変数名を「query」で固定します
     const query = (overrideQuery || searchQuery).trim();
     if (!query) return;
 
+    // --- 履歴保存：ここでも「query」を使います ---
     if (user) {
       addDoc(collection(db, "search_history"), {
-        word: query, // ここをqueryにする
+        word: query, 
         userId: user.uid,
         userEmail: user.email,
         timestamp: Date.now(),
@@ -259,14 +261,14 @@ export default function App() {
       }).catch(err => console.error("履歴の保存に失敗:", err));
     }
 
-    // Fast Path: Check Local Cache First
+    // キャッシュチェック：ここも「query」
     const cached = getCachedWord(query, dictionaryMode);
     if (cached) {
       setResult(cached);
       setActiveTab("detail");
       setSuggestions([]);
       setShowSuggestions(false);
-      return; // Skip loading state completely for local hits
+      return; 
     }
 
     setLoading(true);
@@ -275,7 +277,7 @@ export default function App() {
     setSuggestions([]);
     setShowSuggestions(false);
 
-    // Parallel: Start Streaming and Full Lookup
+    // AI呼び出し：ここも「query」
     const streamPromise = (async () => {
       try {
         const stream = lookupWordStream(query, dictionaryMode);
@@ -291,7 +293,6 @@ export default function App() {
       const detail = await lookupWord(query, dictionaryMode);
       setResult(detail);
       setActiveTab("detail");
-      // Wait for stream to finish cleaning up if it's still running
       await streamPromise;
     } catch (error) {
       console.error(error);
@@ -300,7 +301,6 @@ export default function App() {
       setLoading(false);
     }
   };
-
   // Debounced search suggestions
   useEffect(() => {
     if (searchQuery.length > 1) {
