@@ -42,3 +42,33 @@ export function toWordLower(word: unknown): string {
 export function toModeSlug(mode: unknown): "gen" | "aca" {
   return String(mode ?? "") === "学術（Academic）" ? "aca" : "gen";
 }
+
+function arr(v: unknown): any[] {
+  return Array.isArray(v) ? v : [];
+}
+
+/**
+ * ストリーミング途中の部分的な結果を、UI が安全に描画できる形に埋める。
+ *
+ * 生成中は配列や文字列がまだ存在しないため、そのまま渡すと
+ * result.examples.map(...) のような箇所で落ちる。
+ */
+export function coerceWordDetail(partial: Record<string, any>): any {
+  return {
+    word: String(partial.word ?? ""),
+    meaning: String(partial.meaning ?? ""),
+    grammar: String(partial.grammar ?? ""),
+    phonetic: partial.phonetic ? String(partial.phonetic) : undefined,
+    category: String(partial.category ?? ""),
+    nuance: String(partial.nuance ?? ""),
+    etymology: String(partial.etymology ?? ""),
+    importanceScore: typeof partial.importanceScore === "number" ? partial.importanceScore : 0.5,
+    examples: arr(partial.examples),
+    collocations: arr(partial.collocations),
+    synonyms: arr(partial.synonyms),
+    antonyms: arr(partial.antonyms),
+    specializedContexts: arr(partial.specializedContexts),
+    etymologyNodes: arr(partial.etymologyNodes),
+    ...(partial.mode ? { mode: partial.mode } : {}),
+  };
+}

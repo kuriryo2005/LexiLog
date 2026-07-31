@@ -1,12 +1,22 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { DictionaryMode, WordDetail, SavedWord } from "../types";
+/**
+ * 単語検索とAI機能のクライアント（実装仕様書 F1）。
+ *
+ * Gemini API キーはサーバー側にのみ存在し、ここからは自前の /api/* を叩く。
+ * このファイルに API キーを持ち込まないこと。
+ */
+
+import { WordDetail, SavedWord, DictionaryMode } from "../types";
 import { db, auth } from "../firebase";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { toModeSlug, toWordLower } from "../lib/normalize";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+/**
+ * localStorage のキャッシュキー。
+ * 旧 "lexilog_local_cache" とは cacheKey の形式が変わったため名前を変えている
+ * （キャッシュはユーザーデータではないので破棄してよい）。
+ */
+const CACHE_KEY = "cortex_dict_cache_v2";
 
-// Local session cache with persistence
-const CACHE_KEY = "lexilog_local_cache";
 const localCache = new Map<string, WordDetail>(
   (() => {
     try {
@@ -19,226 +29,202 @@ const localCache = new Map<string, WordDetail>(
 );
 
 function saveLocalCache() {
-  localStorage.setItem(CACHE_KEY, JSON.stringify(Array.from(localCache.entries())));
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(Array.from(localCache.entries())));
+  } catch (e) {
+    // 容量超過などで失敗しても検索自体は続行できる
+    console.warn("Local cache write failed:", e);
+  }
+}
+
+/**
+ * Firestore のドキュメントIDとして使えるキー。
+ *
+ * 旧実装は `${word}_${mode}` で mode に日本語が入っていたため、
+ * セキュリティルールの isValidId（^[a-zA-Z0-9_\-|]+$）を通らず
+ * dictionary_cache への書き込みが常に失敗していた。
+ */
+export function buildCacheKey(word: string, mode: DictionaryMode): string {
+  return `${toWordLower(word)}__${toModeSlug(mode)}`;
 }
 
 export function getCachedWord(word: string, mode: DictionaryMode): WordDetail | null {
-  const normalizedWord = word.trim().toLowerCase();
-  const cacheKey = `${normalizedWord}_${mode}`;
-  return localCache.get(cacheKey) || null;
+  return localCache.get(buildCacheKey(word, mode)) ?? null;
 }
 
-export async function lookupWord(word: string, mode: DictionaryMode = DictionaryMode.GENERAL): Promise<WordDetail> {
-  const normalizedWord = word.trim().toLowerCase();
-  const cacheKey = `${normalizedWord}_${mode}`;
-
-  // 1. Instant Local Session Cache check
-  if (localCache.has(cacheKey)) {
-    return localCache.get(cacheKey)!;
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+    this.name = "ApiError";
   }
+}
 
-  // 2. High-Performance Parallel Lookup
+async function authHeaders(): Promise<Record<string, string>> {
+  const user = auth.currentUser;
+  if (!user) throw new ApiError(401, "ログインが必要です。");
+  const token = await user.getIdToken();
+  return {
+    authorization: `Bearer ${token}`,
+    "content-type": "application/json",
+  };
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => ({}))) as { error?: unknown };
+    throw new ApiError(response.status, String(detail.error ?? "リクエストに失敗しました。"));
+  }
+  return (await response.json()) as T;
+}
+
+/**
+ * 単語を引く。
+ *
+ * 1. localStorage（即時）
+ * 2. Firestore の共有キャッシュ
+ * 3. /api/lookup（AI生成。ここで初めて課金が発生する）
+ *
+ * 旧実装は Promise.any でキャッシュとAI生成を同時に走らせていたため、
+ * キャッシュがヒットしてもAI呼び出しが必ず発生していた。順に試すことで
+ * ヒット時のコストをゼロにしている。
+ *
+ * @param onPartial 部分的な結果が届くたびに呼ばれる（ストリーミング表示用）
+ */
+export async function lookupWord(
+  word: string,
+  mode: DictionaryMode = DictionaryMode.GENERAL,
+  onPartial?: (partial: Partial<WordDetail>) => void
+): Promise<WordDetail> {
+  const cacheKey = buildCacheKey(word, mode);
+
+  const local = localCache.get(cacheKey);
+  if (local) return local;
+
   const cacheRef = doc(db, "dictionary_cache", cacheKey);
-  
-  const firestoreLookup = getDoc(cacheRef).then(snap => {
+  try {
+    const snap = await getDoc(cacheRef);
     if (snap.exists()) {
       const data = snap.data() as WordDetail;
-      console.log(`[Cache] Global hit for: ${normalizedWord}`);
       localCache.set(cacheKey, data);
+      saveLocalCache(); // 旧実装はここで保存しておらず、毎回 Firestore を往復していた
       return data;
     }
-    throw new Error("Cache miss");
-  });
-
-  const generateAI = async (): Promise<WordDetail> => {
-    console.log(`[AI] Generating result for: ${normalizedWord}`);
-    const modeContext = mode === DictionaryMode.GENERAL 
-      ? "general everyday usage" 
-      : "academic and research contexts";
-
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview", 
-        contents: `Look up the English word "${normalizedWord}" specifically for ${modeContext}.
-        Prioritize meanings in ${modeContext}.
-        Provide:
-        - meaning: Japanese translation
-        - grammar: part of speech
-        - category: professional field (e.g. Mechanical Engineering, Finance, etc.)
-        - etymology: origin in Japanese
-        - nuance: semantic difference from synonyms in Japanese
-        - specializedContexts: 3 fields and concise Japanese usage explanations
-        - etymologyNodes: shared root node list with an 'importance' score (0.0 to 1.0) for each
-        - examples: 3 English/Japanese pairs
-        - synonyms/antonyms: 3 pairs with translations
-        - collocations: 5 common English verb/noun pairings (e.g. 'imbibe knowledge')
-        - importanceScore: 0.0 to 1.0 overall importance in English/IELTS/Engineering.`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              word: { type: Type.STRING },
-              meaning: { type: Type.STRING },
-              grammar: { type: Type.STRING },
-              category: { type: Type.STRING },
-              etymology: { type: Type.STRING },
-              nuance: { type: Type.STRING },
-              importanceScore: { type: Type.NUMBER },
-              collocations: { type: Type.ARRAY, items: { type: Type.STRING } },
-              specializedContexts: { 
-                type: Type.ARRAY, 
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    field: { type: Type.STRING },
-                    context: { type: Type.STRING }
-                  },
-                  required: ["field", "context"]
-                }
-              },
-              examples: { type: Type.ARRAY, items: { type: Type.STRING } },
-              synonyms: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    word: { type: Type.STRING },
-                    translation: { type: Type.STRING }
-                  },
-                  required: ["word", "translation"]
-                }
-              },
-              antonyms: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    word: { type: Type.STRING },
-                    translation: { type: Type.STRING }
-                  },
-                  required: ["word", "translation"]
-                }
-              },
-              etymologyNodes: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    word: { type: Type.STRING },
-                    meaning: { type: Type.STRING },
-                    root: { type: Type.STRING },
-                    relation: { type: Type.STRING },
-                    importance: { type: Type.NUMBER }
-                  },
-                  required: ["word", "meaning", "root", "relation", "importance"]
-                }
-              }
-            },
-            required: [
-              "word", "meaning", "grammar", "category", "etymology", 
-              "nuance", "specializedContexts", "examples", "synonyms", 
-              "antonyms", "etymologyNodes", "importanceScore", "collocations"
-            ]
-          }
-        }
-      });
-
-      const resultText = response.text;
-      if (!resultText) throw new Error("AI returned empty result");
-      const result = JSON.parse(resultText) as WordDetail;
-      
-      // Save to Cache persistently (Async)
-      localCache.set(cacheKey, result);
-      saveLocalCache();
-      if (auth.currentUser) {
-        setDoc(cacheRef, { ...result, cachedAt: serverTimestamp() }).catch(e => console.error("Cache write error:", e));
-      }
-      
-      return result;
-    } catch (error) {
-      console.error("AI Lookup Error:", error);
-      throw error;
-    }
-  };
-
-  try {
-    return await Promise.any([firestoreLookup, generateAI()]);
-  } catch (error) {
-    if (error instanceof AggregateError) {
-      throw error.errors[0];
-    }
-    throw error;
+  } catch (e) {
+    console.warn("Dictionary cache read failed, falling back to AI:", e);
   }
+
+  const result = await streamLookup(word, mode, onPartial);
+
+  localCache.set(cacheKey, result);
+  saveLocalCache();
+
+  // 共有キャッシュへの書き込みは失敗しても検索結果には影響しない
+  setDoc(cacheRef, { ...result, cachedAt: serverTimestamp() }).catch((e) =>
+    console.warn("Dictionary cache write failed:", e)
+  );
+
+  return result;
 }
 
-export async function planNextReview(savedWord: SavedWord): Promise<{ nextReviewAt: number; aiAnalysis: string }> {
-  const historyStr = (savedWord.reviewHistory || []).map(h => 
-    `Rating: ${h.rating} at ${new Date(h.timestamp).toISOString()}`
-  ).join("\n");
-
-  const synonymsStr = savedWord.synonyms.map(s => s.word).join(", ");
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: `Analyze the learning progress for the English word "${savedWord.word}" (Meaning: ${savedWord.meaning}).
-    Review History:
-    ${historyStr || "First time being reviewed."}
-
-    Based on the retention patterns, linguistic similarity to other words (like ${synonymsStr}), and common pitfalls for this type of word, determine the optimal "Next Review Date".
-    Also provide a short "AI Analysis" in Japanese explaining why this word might be difficult for the user (e.g., confusion with similar roots, structural complexity).
-
-    Return JSON with:
-    - nextReviewAt: number (Unix timestamp in milliseconds)
-    - aiAnalysis: string (In Japanese)`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          nextReviewAt: { type: Type.NUMBER },
-          aiAnalysis: { type: Type.STRING }
-        },
-        required: ["nextReviewAt", "aiAnalysis"]
-      }
-    }
+/** /api/lookup の SSE を読み、完成した WordDetail を返す。 */
+async function streamLookup(
+  word: string,
+  mode: DictionaryMode,
+  onPartial?: (partial: Partial<WordDetail>) => void
+): Promise<WordDetail> {
+  const response = await fetch("/api/lookup", {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ word, mode: toModeSlug(mode) }),
   });
 
-  const text = response.text;
-  if (!text) throw new Error("AI failed to plan review");
-  return JSON.parse(text);
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => ({}))) as { error?: unknown };
+    throw new ApiError(response.status, String(detail.error ?? "検索に失敗しました。"));
+  }
+  if (!response.body) throw new ApiError(502, "応答が空でした。");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let final: WordDetail | null = null;
+  let failure: string | null = null;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE は空行でイベントを区切る
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+
+    for (const raw of events) {
+      const line = raw.trim();
+      if (!line.startsWith("data:")) continue;
+
+      let event: { type?: string; payload?: unknown; message?: string };
+      try {
+        event = JSON.parse(line.slice(5).trim());
+      } catch {
+        continue;
+      }
+
+      if (event.type === "partial") {
+        onPartial?.(event.payload as Partial<WordDetail>);
+      } else if (event.type === "done") {
+        final = event.payload as WordDetail;
+      } else if (event.type === "error") {
+        failure = event.message ?? "AI の応答に失敗しました。";
+      }
+    }
+  }
+
+  if (failure) throw new ApiError(502, failure);
+  if (!final) throw new ApiError(502, "AI の応答が完了しませんでした。");
+  return final;
 }
 
-export async function getEtymologyStory(word: string, meaning: string, etymology: string): Promise<string> {
+export async function planNextReview(
+  savedWord: SavedWord
+): Promise<{ nextReviewAt: number; aiAnalysis: string }> {
+  return postJson("/api/review-analysis", {
+    word: savedWord.word,
+    meaning: savedWord.meaning,
+    reviewHistory: savedWord.reviewHistory ?? [],
+    synonyms: savedWord.synonyms ?? [],
+  });
+}
+
+export interface RootRelative {
+  word: string;
+  meaning: string;
+  root: string;
+}
+
+/** 語根を共有する単語を追加で取得する（語源グラフの展開用）。 */
+export async function expandEtymologyRoot(root: string): Promise<RootRelative[]> {
+  const { words } = await postJson<{ words: RootRelative[] }>("/api/expand-root", { root });
+  return words;
+}
+
+export async function getEtymologyStory(
+  word: string,
+  meaning: string,
+  etymology: string
+): Promise<string> {
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `英語の単語「${word}」（意味: ${meaning}）について、その語源や歴史的な背景を、学習者がワクワクするような「30秒で読めるショートストーリー」として日本語で語ってください。
-      背景情報: ${etymology}`,
-    });
-    return response.text || "語源のストーリーは現在準備中です。";
+    const { story } = await postJson<{ story: string }>("/api/story", { word, meaning, etymology });
+    return story;
   } catch (error) {
     console.error("Story generation error:", error);
     return "ストーリーを生成できませんでした。";
-  }
-}
-
-export async function* lookupWordStream(word: string, mode: DictionaryMode = DictionaryMode.GENERAL) {
-  const normalizedWord = word.trim().toLowerCase();
-  const modeContext = mode === DictionaryMode.GENERAL ? "日常" : "学術";
-
-  const response = await ai.models.generateContentStream({
-    model: "gemini-3-flash-preview",
-    contents: `Look up "${normalizedWord}" in ${modeContext} context. 
-    First, provide a quick translation and nuance in Japanese.
-    Then, suggest 3 similar English words (typo correction or synonyms).
-    Finally, provide a very short encouraging tip for learning this word.
-    Format your response clearly with headers.`,
-  });
-
-  for await (const chunk of response) {
-    if (chunk.text) {
-      yield chunk.text;
-    }
   }
 }

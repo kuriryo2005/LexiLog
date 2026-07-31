@@ -3,9 +3,7 @@ import * as d3 from "d3";
 import { EtymologyNode } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import { Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2 } from "lucide-react";
-import { GoogleGenAI, Type } from "@google/genai";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+import { expandEtymologyRoot } from "../services/geminiService";
 
 interface Props {
   mainWord: string;
@@ -45,31 +43,9 @@ export const EtymologyGraph: React.FC<Props> = ({ mainWord, nodes }) => {
     setIsExpanding(true);
 
     try {
-      const prompt = `Find 3 more English words that share the same etymological root "${root}".
-      Return JSON array of objects with fields: word, meaning (in Japanese), and root (the string "${root}").`;
-      
-      const result = await ai.models.generateContent({
-        model: "gemini-1.5-flash",
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                word: { type: Type.STRING },
-                meaning: { type: Type.STRING },
-                root: { type: Type.STRING }
-              },
-              required: ["word", "meaning", "root"]
-            }
-          }
-        }
-      });
+      // API キーはサーバー側にのみ存在するため、自前の API 経由で取得する
+      const newWords = await expandEtymologyRoot(root);
 
-      const newWords = JSON.parse(result.text);
-      
       setGraphData(prev => {
         const existingNodeIds = new Set(prev.nodes.map(n => n.id));
         const addedNodes = newWords

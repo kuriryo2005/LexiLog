@@ -32,12 +32,8 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
-import { 
-  lookupWord, 
-  planNextReview, 
-  getCachedWord, 
-  lookupWordStream 
-} from "./services/geminiService";
+import { lookupWord, planNextReview, getCachedWord } from "./services/geminiService";
+import { coerceWordDetail } from "./lib/normalize";
 import { WordDetail, SavedWord, DictionaryMode, ReviewRating, ReviewSession } from "./types";
 import { EtymologyGraph } from "./components/EtymologyGraph";
 import { KnowledgeMap } from "./components/KnowledgeMap";
@@ -142,7 +138,6 @@ export default function App() {
   const [dictionaryMode, setDictionaryMode] = useState<DictionaryMode>(DictionaryMode.GENERAL);
   const [suggestions, setSuggestions] = useState<SavedWord[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [streamingOutput, setStreamingOutput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
 
@@ -267,33 +262,28 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
     }
 
     setLoading(true);
-    setStreamingOutput("");
     setIsStreaming(true);
+    setResult(null);
     setSuggestions([]);
     setShowSuggestions(false);
-
-    // AI呼び出し：ここも「query」
-    const streamPromise = (async () => {
-      try {
-        const stream = lookupWordStream(query, dictionaryMode);
-        for await (const chunk of stream) {
-          setStreamingOutput(prev => prev + chunk);
-        }
-      } finally {
-        setIsStreaming(false);
-      }
-    })();
+    setActiveTab("detail");
 
     try {
-      const detail = await lookupWord(query, dictionaryMode);
+      const detail = await lookupWord(query, dictionaryMode, (partial) => {
+        // 意味が届いた時点で描画を始める。全項目が揃うのを待たない。
+        if (!partial?.meaning) return;
+        setResult(coerceWordDetail(partial));
+        setLoading(false);
+      });
       setResult(detail);
-      setActiveTab("detail");
-      await streamPromise;
     } catch (error) {
       console.error(error);
-      toast.error("単語の検索に失敗しました。");
+      const message = error instanceof Error ? error.message : "単語の検索に失敗しました。";
+      toast.error(message);
+      setResult(null);
     } finally {
       setLoading(false);
+      setIsStreaming(false);
     }
   };
   // Debounced search suggestions
@@ -384,6 +374,47 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#f8f9fa]">
         <Loader2 className="w-8 h-8 animate-spin text-[#2A5CFF]" />
+      </div>
+    );
+  }
+
+  // 未ログインではアプリ本体を描画しない。
+  // 検索は AI 生成を伴うため、認証なしに叩ける経路を残さない（実装仕様書 F1）。
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F8F9FA] p-6">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-sm text-center"
+        >
+          <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/10 mb-8 mx-auto">
+            <div className="w-12 h-12 bg-[#2A5CFF] rounded-2xl flex items-center justify-center">
+              <BookOpen className="w-6 h-6 text-white" />
+            </div>
+          </div>
+
+          <h1 className="text-3xl font-black tracking-tight text-[#1A1C1E] mb-3">
+            Cortex Dictionary
+          </h1>
+          <p className="text-sm text-[#656E77] leading-relaxed mb-10">
+            AIが専門分野や語源から知識の繋がりを生成する英単語辞書です。
+            利用するにはログインしてください。
+          </p>
+
+          <Button
+            onClick={handleLogin}
+            className="w-full h-12 rounded-2xl bg-[#2A5CFF] hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-200"
+          >
+            <LogIn className="w-4 h-4 mr-2" />
+            Google でログイン
+          </Button>
+
+          <p className="text-[10px] text-[#656E77]/70 mt-6 leading-relaxed">
+            保存した単語はアカウントごとに管理され、他のユーザーからは見えません。
+          </p>
+        </motion.div>
+        <Toaster position="bottom-right" richColors />
       </div>
     );
   }
@@ -801,21 +832,6 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                exit={{ opacity: 0 }}
                className="h-full flex flex-col"
              >
-               {streamingOutput && (
-                 <motion.div 
-                   initial={{ opacity: 0, y: 10 }}
-                   animate={{ opacity: 1, y: 0 }}
-                   className="mb-8 p-6 bg-white rounded-2xl border border-blue-100 shadow-sm"
-                 >
-                   <div className="flex items-center gap-2 mb-4">
-                     <Sparkles className="w-4 h-4 text-blue-500" />
-                     <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Rapid AI Insight</span>
-                   </div>
-                   <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap font-medium">
-                     {streamingOutput}
-                   </div>
-                 </motion.div>
-               )}
                <WordSkeleton />
              </motion.div>
           ) : result ? (

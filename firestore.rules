@@ -76,15 +76,27 @@ service cloud.firestore {
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
 
+    // Shared dictionary cache.
+    //
+    // NOTE: cacheKey must be ASCII to satisfy isValidId(). The client previously
+    // built it as `${word}_${mode}` where mode contained Japanese characters
+    // (e.g. "turbulence_一般"), so every create was rejected and the cache was
+    // never populated. The client now emits `${wordLower}__${gen|aca}`.
     match /dictionary_cache/{cacheKey} {
-      // Direct access is public for performance
-      allow get: if true;
-      // Listing the cache requires authentication
+      // Reading requires authentication. The app is login-only, and leaving this
+      // open would give an unauthenticated path to AI-generated content.
+      allow get: if isSignedIn();
       allow list: if isSignedIn();
-      // Writing to cache requires being signed in and valid data
+
+      // Entries may be created but never rewritten. Allowing updates would let
+      // any signed-in user overwrite another user's cached entry with junk
+      // (security_spec.md, attack #10: Cache Poisoning).
+      //
+      // A bad entry can be removed from the Firebase console; it will then be
+      // regenerated on the next lookup.
       allow create: if isSignedIn() && isValidId(cacheKey) && isValidCache(incoming());
-      // Updates are restricted to prevent random poisoning
-      allow update: if isSignedIn() && isValidId(cacheKey) && isValidCache(incoming());
+      allow update: if false;
+      allow delete: if false;
     }
   }
 }
