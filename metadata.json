@@ -1,6 +1,6 @@
 {
-  "name": "LexiLog",
-  "description": "A simple English word search and learning app. Search words to see meanings, grammar, examples, and more. Save words to a daily list to track your progress.",
+  "name": "Cortex Dictionary",
+  "description": "AI-powered English vocabulary dictionary and spaced-repetition trainer. Look up words to see meanings, grammar, etymology, nuance and field-specific usage, then save them to review with flashcards and explore an etymology knowledge map.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

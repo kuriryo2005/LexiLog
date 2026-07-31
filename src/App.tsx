@@ -27,7 +27,8 @@ import {
   Activity,
   Gavel,
   Code,
-  Sparkles
+  Sparkles,
+  Download
 } from "lucide-react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
@@ -40,6 +41,7 @@ import {
 import { WordDetail, SavedWord, DictionaryMode, ReviewRating, ReviewSession } from "./types";
 import { EtymologyGraph } from "./components/EtymologyGraph";
 import { KnowledgeMap } from "./components/KnowledgeMap";
+import { DataTransferModal } from "./components/DataTransferModal";
 import { Input } from "./components/ui/input";
 import { Button } from "./components/ui/button";
 import { Skeleton } from "./components/ui/skeleton";
@@ -142,6 +144,7 @@ export default function App() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [streamingOutput, setStreamingOutput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isDataModalOpen, setIsDataModalOpen] = useState(false);
 
   // Auth state listener
   useEffect(() => {
@@ -246,22 +249,14 @@ export default function App() {
 
 const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
     e?.preventDefault();
-    // 変数名を「query」で固定します
     const query = (overrideQuery || searchQuery).trim();
     if (!query) return;
 
-    // --- 履歴保存：ここでも「query」を使います ---
-    if (user) {
-      addDoc(collection(db, "search_history"), {
-        word: query, 
-        userId: user.uid,
-        userEmail: user.email,
-        timestamp: Date.now(),
-        mode: dictionaryMode
-      }).catch(err => console.error("履歴の保存に失敗:", err));
-    }
+    // NOTE: 以前ここに search_history への addDoc があったが、firestore.rules に
+    // search_history のルールが無く、全書き込みが PERMISSION_DENIED で失敗していた
+    // （エラーは .catch で握り潰されていた）。検索履歴が必要になった時点で
+    // ルールとあわせて設計し直す。
 
-    // キャッシュチェック：ここも「query」
     const cached = getCachedWord(query, dictionaryMode);
     if (cached) {
       setResult(cached);
@@ -431,7 +426,7 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
               <div className="w-10 h-10 bg-[#2A5CFF] rounded-xl flex items-center justify-center shadow-lg shadow-blue-100">
                 <BookOpen className="text-white w-5 h-5" />
               </div>
-              <h1 className="text-xl font-extrabold tracking-tight">LexiLog</h1>
+              <h1 className="text-xl font-extrabold tracking-tight">Cortex Dictionary</h1>
             </div>
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setIsSidebarOpen(false)}>
               <ChevronLeft className="w-5 h-5" />
@@ -590,7 +585,15 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
         </ScrollArea>
 
         {user && (
-          <div className="p-4 border-t border-[#E5E7EB] bg-white">
+          <div className="p-4 border-t border-[#E5E7EB] bg-white space-y-2">
+            <Button
+              onClick={() => setIsDataModalOpen(true)}
+              variant="ghost"
+              className="w-full justify-start text-[#656E77] hover:bg-gray-100 font-bold text-xs h-9 rounded-lg"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              データの書き出し / 復元
+            </Button>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <img src={user.photoURL || ""} alt="" className="w-8 h-8 rounded-full border border-gray-100" referrerPolicy="no-referrer" />
@@ -1042,6 +1045,14 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
           )}
         </AnimatePresence>
       </main>
+      {user && (
+        <DataTransferModal
+          open={isDataModalOpen}
+          onClose={() => setIsDataModalOpen(false)}
+          uid={user.uid}
+          wordCount={savedWords.length}
+        />
+      )}
       <Toaster position="bottom-right" richColors />
     </div>
   );

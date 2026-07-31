@@ -1,4 +1,4 @@
-# Security Specification - LexiLog
+# Security Specification - Cortex Dictionary
 
 ## 1. Data Invariants
 - `Word` documents MUST belong to a specific `userId` matching the authenticated user.
