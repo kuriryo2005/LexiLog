@@ -75,4 +75,52 @@ export interface SavedWord extends WordDetail {
   phonetic?: string;
   /** 読み取り時に normalizeWord() が examples から生成する。Firestore には保存しない。 */
   examplePairs?: ExamplePair[];
+
+  /** F5 の一括取り込み。詳細をまだ生成していない語は 'pending'。 */
+  enrichStatus?: EnrichStatus;
+  source?: WordSource;
+}
+
+export type EnrichStatus = "pending" | "done" | "error";
+
+export interface WordSource {
+  title?: string;
+  excerpt?: string;
+  importedAt: number;
+}
+
+/** 単語をしまう排他的な入れ物。1単語1デッキ（横断ラベルは tags で表現する）。 */
+export interface Deck {
+  id: string;
+  userId: string;
+  name: string;
+  color: string;
+  order: number;
+  createdAt: number;
+  updatedAt?: number;
+}
+
+export interface UserStats {
+  userId: string;
+  /** 'YYYY-MM-DD'（ローカルタイム基準） */
+  lastStudiedOn?: string;
+  streak?: number;
+  longestStreak?: number;
+  updatedAt?: number;
+}
+
+/** 一覧・復習・マップに共通で効く絞り込み。localStorage に保存する。 */
+export interface WordFilter {
+  /** null = 未分類のみ / undefined = すべて */
+  deckId?: string | null;
+  /** 複数指定は AND */
+  tags: string[];
+}
+
+/** F5 で抽出した候補（保存前の状態） */
+export interface ExtractedCandidate {
+  word: string;
+  meaningShort: string;
+  level: "B2" | "C1" | "C2" | "technical";
+  sentence: string;
 }

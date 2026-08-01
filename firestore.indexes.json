@@ -16,6 +16,14 @@
         { "fieldPath": "nextReviewAt", "order": "ASCENDING" }
       ]
     }
+    {
+      "collectionGroup": "decks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "order", "order": "ASCENDING" }
+      ]
+    }
   ],
   "fieldOverrides": []
 }

@@ -80,6 +80,9 @@ export function normalizeWord(id: string, raw: Record<string, any>): SavedWord {
     specializedContexts: arr(raw?.specializedContexts),
     etymologyNodes: arr(raw?.etymologyNodes),
     reviewHistory: arr(raw?.reviewHistory),
+    // 旧データは詳細が揃っているので done 扱い（F5 の一括取り込みだけが pending を作る）
+    enrichStatus:
+      raw?.enrichStatus === "pending" || raw?.enrichStatus === "error" ? raw.enrichStatus : "done",
     importanceScore: typeof raw?.importanceScore === "number" ? raw.importanceScore : 0.5,
     examplePairs: normalizeExamples(raw?.examples),
   } as SavedWord;

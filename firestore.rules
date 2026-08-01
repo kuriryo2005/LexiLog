@@ -28,6 +28,13 @@ service cloud.firestore {
       return !('tags' in data) || (data.tags is list && data.tags.size() <= 10);
     }
 
+    function isValidSource(data) {
+      return !('source' in data) ||
+             (data.source is map && data.source.importedAt is number &&
+              (!('title' in data.source) || (data.source.title is string && data.source.title.size() <= 100)) &&
+              (!('excerpt' in data.source) || (data.source.excerpt is string && data.source.excerpt.size() <= 200)));
+    }
+
     function isValidWord(data) {
       return data.word is string && data.word.size() > 0 && data.word.size() <= 500 &&
              data.meaning is string && data.meaning.size() > 0 && data.meaning.size() <= 1000 &&
@@ -46,6 +53,8 @@ service cloud.firestore {
              (!('schemaVersion' in data) || data.schemaVersion is number) &&
              (!('updatedAt' in data) || data.updatedAt is number) &&
              (!('deckId' in data) || data.deckId == null || (data.deckId is string && data.deckId.size() <= 128)) &&
+             (!('enrichStatus' in data) || (data.enrichStatus in ['pending', 'done', 'error'])) &&
+             isValidSource(data) &&
              isValidTags(data);
     }
 
@@ -82,10 +91,45 @@ service cloud.firestore {
                         'antonyms', 'etymologyNodes', 'mode', 'nextReviewAt',
                         'aiAnalysis', 'reviewHistory', 'collocations', 'importanceScore',
                         // v2
-                        'schemaVersion', 'wordLower', 'updatedAt', 'tags', 'deckId', 'phonetic'
+                        'schemaVersion', 'wordLower', 'updatedAt', 'tags', 'deckId', 'phonetic',
+                        'enrichStatus', 'source'
                       ]);
       
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // 単語をしまう入れ物（F7）。
+    //
+    // デッキを削除しても所属単語は消さない。アプリ側で deckId を null に
+    // 戻してから削除する（削除で語彙が消えるのは事故のもと）。
+    match /decks/{deckId} {
+      allow read: if isSignedIn() && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() && isValidId(deckId) &&
+                      incoming().userId == request.auth.uid &&
+                      incoming().name is string &&
+                      incoming().name.size() > 0 && incoming().name.size() <= 40 &&
+                      incoming().createdAt is number;
+
+      allow update: if isSignedIn() && existing().userId == request.auth.uid &&
+                      incoming().userId == existing().userId &&
+                      incoming().createdAt == existing().createdAt &&
+                      incoming().name is string &&
+                      incoming().name.size() > 0 && incoming().name.size() <= 40 &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['name', 'color', 'order', 'updatedAt']);
+
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // 連続学習日数など、単語一覧から計算できない値だけを置く（F6）。
+    // 集計値はクライアント側のキャッシュから計算するのでここには持たない。
+    match /user_stats/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow write: if isSignedIn() && request.auth.uid == uid &&
+                     incoming().userId == request.auth.uid &&
+                     (!('streak' in incoming()) || incoming().streak is number) &&
+                     (!('lastStudiedOn' in incoming()) ||
+                      (incoming().lastStudiedOn is string && incoming().lastStudiedOn.size() <= 10));
     }
 
     // Shared dictionary cache.

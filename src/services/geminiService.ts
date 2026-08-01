@@ -5,7 +5,7 @@
  * このファイルに API キーを持ち込まないこと。
  */
 
-import { WordDetail, SavedWord, DictionaryMode } from "../types";
+import { WordDetail, SavedWord, DictionaryMode, ExtractedCandidate } from "../types";
 import { db, auth } from "../firebase";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { toModeSlug, toWordLower } from "../lib/normalize";
@@ -222,6 +222,18 @@ export async function expandEtymologyRoot(root: string): Promise<RootRelative[]>
 export async function fetchPhonetic(word: string): Promise<string> {
   const { phonetic } = await postJson<{ phonetic: string }>("/api/phonetic", { word });
   return phonetic;
+}
+
+/** 英文から未知語の候補を抽出する（F5）。 */
+export async function extractCandidates(
+  text: string,
+  known: string[]
+): Promise<ExtractedCandidate[]> {
+  const { candidates } = await postJson<{ candidates: ExtractedCandidate[] }>("/api/extract", {
+    text,
+    known,
+  });
+  return candidates;
 }
 
 export async function getEtymologyStory(
