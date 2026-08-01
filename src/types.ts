@@ -3,6 +3,11 @@ export enum DictionaryMode {
   ACADEMIC = "学術（Academic）",
 }
 
+export interface ExamplePair {
+  en: string;
+  ja: string;
+}
+
 export interface WordRelation {
   word: string;
   translation: string;
@@ -34,7 +39,9 @@ export interface WordDetail {
   antonyms: WordRelation[];
   etymologyNodes: EtymologyNode[];
   category: string; // Engineering field or general category
-  collocations?: string[]; 
+  /** IPA。スラッシュは含めない。既存の保存済み単語には無い（F4 で遅延補完する）。 */
+  phonetic?: string;
+  collocations?: string[];
   importanceScore?: number; // 0.0 to 1.0
 }
 
@@ -57,4 +64,15 @@ export interface SavedWord extends WordDetail {
   reviewHistory?: ReviewSession[];
   nextReviewAt?: number;
   aiAnalysis?: string; // AI's comment on why this word is hard for the user
+
+  // --- v2 追加（すべて optional）。既存ドキュメントには存在しない ---
+  schemaVersion?: number;
+  wordLower?: string;
+  updatedAt?: number;
+  tags?: string[];
+  deckId?: string | null;
+  /** IPA。スラッシュは含めない 例: "ˈtɜːbjələns" */
+  phonetic?: string;
+  /** 読み取り時に normalizeWord() が examples から生成する。Firestore には保存しない。 */
+  examplePairs?: ExamplePair[];
 }

@@ -24,6 +24,10 @@ service cloud.firestore {
       return resource.data;
     }
 
+    function isValidTags(data) {
+      return !('tags' in data) || (data.tags is list && data.tags.size() <= 10);
+    }
+
     function isValidWord(data) {
       return data.word is string && data.word.size() > 0 && data.word.size() <= 500 &&
              data.meaning is string && data.meaning.size() > 0 && data.meaning.size() <= 1000 &&
@@ -35,7 +39,14 @@ service cloud.firestore {
              (!('specializedContexts' in data) || (data.specializedContexts is list && data.specializedContexts.size() <= 5)) &&
              (!('synonyms' in data) || (data.synonyms is list && data.synonyms.size() <= 10)) &&
              (!('reviewHistory' in data) || (data.reviewHistory is list && data.reviewHistory.size() <= 1000)) &&
-             (!('nextReviewAt' in data) || (data.nextReviewAt is number));
+             (!('nextReviewAt' in data) || (data.nextReviewAt is number)) &&
+             // v2 追加フィールド（すべて optional。既存 v1 ドキュメントには無い）
+             (!('phonetic' in data) || (data.phonetic is string && data.phonetic.size() <= 100)) &&
+             (!('wordLower' in data) || (data.wordLower is string && data.wordLower.size() <= 500)) &&
+             (!('schemaVersion' in data) || data.schemaVersion is number) &&
+             (!('updatedAt' in data) || data.updatedAt is number) &&
+             (!('deckId' in data) || data.deckId == null || (data.deckId is string && data.deckId.size() <= 128)) &&
+             isValidTags(data);
     }
 
     function isValidCache(data) {
@@ -60,18 +71,19 @@ service cloud.firestore {
                       // Immutability check
                       incoming().userId == existing().userId &&
                       incoming().timestamp == existing().timestamp &&
-                      (
-                        // Action: Full Update (content)
-                        incoming().diff(existing()).affectedKeys().hasOnly([
-                          'word', 'meaning', 'grammar', 'category', 'etymology', 
-                          'nuance', 'specializedContexts', 'examples', 'synonyms', 
-                          'antonyms', 'etymologyNodes', 'mode', 'nextReviewAt', 'aiAnalysis'
-                        ]) ||
-                        // Action: Review Session
-                        incoming().diff(existing()).affectedKeys().hasOnly([
-                          'reviewHistory', 'nextReviewAt', 'aiAnalysis'
-                        ])
-                      );
+                      // 旧実装は「内容の更新」と「復習の記録」で2つの hasOnly を
+                      // OR で繋いでいたため、両方にまたがる更新（復習記録 +
+                      // updatedAt など）がどちらのリストにも収まらず弾かれた。
+                      // 単一の許可リストに統合する。
+                      incoming().diff(existing()).affectedKeys().hasOnly([
+                        // v1
+                        'word', 'meaning', 'grammar', 'category', 'etymology',
+                        'nuance', 'specializedContexts', 'examples', 'synonyms',
+                        'antonyms', 'etymologyNodes', 'mode', 'nextReviewAt',
+                        'aiAnalysis', 'reviewHistory', 'collocations', 'importanceScore',
+                        // v2
+                        'schemaVersion', 'wordLower', 'updatedAt', 'tags', 'deckId', 'phonetic'
+                      ]);
       
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }

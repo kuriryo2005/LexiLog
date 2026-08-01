@@ -5,14 +5,14 @@
  * Firestore から読んだデータは必ずここを通し、v1 / v2 いずれの形式でも
  * 同じ内部型として扱えるようにする。Firestore 上の既存ドキュメントは書き換えない。
  *
- * Phase 0 では例文の正規化のみを提供する。
- * Phase 2 で normalizeWord() を追加してここに集約する。
+ * Firestore から読んだ単語は例外なく normalizeWord() を通してから state に入れる。
+ * これにより v1 のドキュメントを1件も書き換えずに v2 のフィールドを前提とした
+ * コードが書ける。
  */
 
-export interface ExamplePair {
-  en: string;
-  ja: string;
-}
+import type { SavedWord, ExamplePair } from "../types";
+
+export type { ExamplePair };
 
 /**
  * 例文を { en, ja } に正規化する。
@@ -45,6 +45,44 @@ export function toModeSlug(mode: unknown): "gen" | "aca" {
 
 function arr(v: unknown): any[] {
   return Array.isArray(v) ? v : [];
+}
+
+/**
+ * Firestore の1ドキュメントを SavedWord に正規化する（実装仕様書 §2.5）。
+ *
+ * 既存の43件は schemaVersion を持たない v1 で、mode すら無いものもある。
+ * ここで欠けているフィールドを埋めることで、呼び出し側は
+ * word.tags や word.examplePairs が常に存在する前提で書ける。
+ *
+ * **Firestore 側には一切書き戻さない。** 読み取り時の変換に閉じる（鉄則 R2）。
+ */
+export function normalizeWord(id: string, raw: Record<string, any>): SavedWord {
+  const word = String(raw?.word ?? "");
+  return {
+    ...raw,
+    id,
+    word,
+    meaning: String(raw?.meaning ?? ""),
+    grammar: String(raw?.grammar ?? ""),
+    etymology: String(raw?.etymology ?? ""),
+    nuance: String(raw?.nuance ?? ""),
+    category: String(raw?.category ?? ""),
+    timestamp: typeof raw?.timestamp === "number" ? raw.timestamp : 0,
+    schemaVersion: typeof raw?.schemaVersion === "number" ? raw.schemaVersion : 1,
+    wordLower: raw?.wordLower ?? toWordLower(word),
+    tags: arr(raw?.tags).map((t) => String(t)),
+    deckId: raw?.deckId ?? null,
+    phonetic: raw?.phonetic ? String(raw.phonetic) : undefined,
+    examples: arr(raw?.examples),
+    collocations: arr(raw?.collocations),
+    synonyms: arr(raw?.synonyms),
+    antonyms: arr(raw?.antonyms),
+    specializedContexts: arr(raw?.specializedContexts),
+    etymologyNodes: arr(raw?.etymologyNodes),
+    reviewHistory: arr(raw?.reviewHistory),
+    importanceScore: typeof raw?.importanceScore === "number" ? raw.importanceScore : 0.5,
+    examplePairs: normalizeExamples(raw?.examples),
+  } as SavedWord;
 }
 
 /**

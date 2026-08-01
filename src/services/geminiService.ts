@@ -215,6 +215,15 @@ export async function expandEtymologyRoot(root: string): Promise<RootRelative[]>
   return words;
 }
 
+/**
+ * 発音記号だけを取得する（F4 の遅延補完用）。
+ * 既存の保存済み単語には phonetic が無いため、詳細を開いたときに1件ずつ補う。
+ */
+export async function fetchPhonetic(word: string): Promise<string> {
+  const { phonetic } = await postJson<{ phonetic: string }>("/api/phonetic", { word });
+  return phonetic;
+}
+
 export async function getEtymologyStory(
   word: string,
   meaning: string,

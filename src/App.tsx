@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   Search, 
   BookOpen, 
@@ -28,16 +28,26 @@ import {
   Gavel,
   Code,
   Sparkles,
-  Download
+  Download,
+  Volume2
 } from "lucide-react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
-import { lookupWord, planNextReview, getCachedWord } from "./services/geminiService";
-import { coerceWordDetail } from "./lib/normalize";
+import { lookupWord, planNextReview, getCachedWord, fetchPhonetic } from "./services/geminiService";
+import { coerceWordDetail, normalizeExamples, normalizeWord } from "./lib/normalize";
 import { WordDetail, SavedWord, DictionaryMode, ReviewRating, ReviewSession } from "./types";
+import { useReviewSession } from "./hooks/useReviewSession";
+import {
+  formatPhonetic,
+  isTtsAvailable,
+  loadTtsSettings,
+  onVoicesReady,
+  speak,
+} from "./lib/tts";
 import { EtymologyGraph } from "./components/EtymologyGraph";
 import { KnowledgeMap } from "./components/KnowledgeMap";
 import { DataTransferModal } from "./components/DataTransferModal";
+import { ReviewMode } from "./components/ReviewMode";
 import { Input } from "./components/ui/input";
 import { Button } from "./components/ui/button";
 import { Skeleton } from "./components/ui/skeleton";
@@ -62,11 +72,10 @@ import {
   query, 
   where, 
   onSnapshot, 
-  deleteDoc, 
-  doc, 
+  deleteDoc,
+  doc,
   orderBy,
-  updateDoc,
-  getDocFromServer
+  updateDoc
 } from "firebase/firestore";
 
 enum OperationType {
@@ -98,6 +107,9 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   toast.error("データベースエラーが発生しました。");
 }
+
+/** サイドバーの1ページ分の件数（実装仕様書 F2-c） */
+const SIDEBAR_PAGE_SIZE = 100;
 
 function WordSkeleton() {
   return (
@@ -131,15 +143,20 @@ export default function App() {
   const [savedWords, setSavedWords] = useState<SavedWord[]>([]);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [activeTab, setActiveTab] = useState<"detail" | "flashcards" | "map">("detail");
-  const [flashcardIndex, setFlashcardIndex] = useState(0);
-  const [isFlipped, setIsFlipped] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [flashcardList, setFlashcardList] = useState<SavedWord[]>([]);
   const [dictionaryMode, setDictionaryMode] = useState<DictionaryMode>(DictionaryMode.GENERAL);
+  /** サイドバーに描画する件数。全件を一度に DOM へ出さない（実装仕様書 F2-c）。 */
+  const [visibleCount, setVisibleCount] = useState(SIDEBAR_PAGE_SIZE);
   const [suggestions, setSuggestions] = useState<SavedWord[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
+  const [ttsAvailable, setTtsAvailable] = useState(isTtsAvailable);
+
+  const review = useReviewSession(savedWords);
+
+  // 音声リストは非同期に読み込まれる。埋まったら再判定して再生ボタンを出す。
+  useEffect(() => onVoicesReady(() => setTtsAvailable(isTtsAvailable())), []);
 
   // Auth state listener
   useEffect(() => {
@@ -150,42 +167,58 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Real-time Firestore listener
+  /**
+   * 単語一覧の購読（実装仕様書 F2-b）。
+   *
+   * orderBy は以前「インデックス回避のため」外されていた。複合インデックス
+   * （firestore.indexes.json）を作ったので復活させるが、インデックスの作成は
+   * デプロイとは別作業なので、未作成の環境では failed-precondition で
+   * 一覧が丸ごと出なくなってしまう。それを避けるため、失敗したら並べ替え無しで
+   * 購読し直す。
+   */
   useEffect(() => {
     if (!user) {
       setSavedWords([]);
       return;
     }
 
-    const q = query(
-      collection(db, "words"),
-      where("userId", "==", user.uid)
-      // orderBy("timestamp", "desc") // Removed to avoid index requirement
-    );
+    let unsubscribe: () => void = () => {};
+    let cancelled = false;
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const words = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as SavedWord[];
-      
-      // Sort manually by timestamp desc for list display
-      const listSorted = [...words].sort((a, b) => b.timestamp - a.timestamp);
-      setSavedWords(listSorted);
+    const subscribe = (ordered: boolean) => {
+      const q = ordered
+        ? query(collection(db, "words"), where("userId", "==", user.uid), orderBy("timestamp", "desc"))
+        : query(collection(db, "words"), where("userId", "==", user.uid));
 
-      // Sort by nextReviewAt for flashcards (due or priority first)
-      // Words with nextReviewAt in the past or lower value are shown first
-      const reviewSorted = [...words].sort((a, b) => {
-        const timeA = a.nextReviewAt || 0;
-        const timeB = b.nextReviewAt || 0;
-        return timeA - timeB;
-      });
-      setFlashcardList(reviewSorted);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "words");
-    });
+      unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          // Firestore から読んだデータは例外なく normalizeWord を通す（鉄則 R3）。
+          // v1 の既存データに tags や examplePairs を補うのはここだけの責務。
+          const words = snapshot.docs.map((d) => normalizeWord(d.id, d.data()));
+          // ordered の場合は既にサーバー側で並んでいるが、フォールバック時の
+          // 順序を保証するために念のため揃える（43件程度では実測差が出ない）。
+          words.sort((a, b) => b.timestamp - a.timestamp);
+          setSavedWords(words);
+        },
+        (error) => {
+          if (ordered && (error as { code?: string }).code === "failed-precondition") {
+            console.warn("複合インデックスが未作成のため、並べ替え無しで購読し直します。", error);
+            unsubscribe();
+            if (!cancelled) subscribe(false);
+            return;
+          }
+          handleFirestoreError(error, OperationType.LIST, "words");
+        }
+      );
+    };
 
-    return () => unsubscribe();
+    subscribe(true);
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [user]);
 
   const handleLogin = async () => {
@@ -208,34 +241,28 @@ export default function App() {
     }
   };
 
-  const handleReview = async (rating: ReviewRating) => {
-    if (!user || flashcardList.length === 0) return;
-    const word = flashcardList[flashcardIndex];
-    
-    // UIを即座に更新（次のカードへ遷移）
-    setIsFlipped(false);
-    
-    // さらに高速に（100msで切り替え）
-    setTimeout(() => {
-      nextFlashcard();
-    }, 100);
-    
-    // 非同期でAI分析とDB保存を実行（ユーザーを待たせない）
+  /**
+   * 評価を記録して次のカードへ（実装仕様書 F3）。
+   *
+   * 進行はキュー側が同期的に進めるので、旧実装のような setTimeout での
+   * インデックス操作は無い。DB 書き込みは待たせない（UI を止めない）。
+   */
+  const handleReview = (rating: ReviewRating) => {
+    const word = review.grade(rating);
+    if (!word || !user) return;
+
     const session: ReviewSession = { rating, timestamp: Date.now() };
     const updatedHistory = [...(word.reviewHistory || []), session];
-    
-    // バックグラウンドでの非同期処理
+
     (async () => {
       try {
         const { nextReviewAt, aiAnalysis } = await planNextReview({ ...word, reviewHistory: updatedHistory });
-        const wordRef = doc(db, "words", word.id);
-        await updateDoc(wordRef, {
+        await updateDoc(doc(db, "words", word.id), {
           reviewHistory: updatedHistory,
           nextReviewAt,
-          aiAnalysis
+          aiAnalysis,
+          updatedAt: Date.now(),
         });
-        // 成功通知は控えめにするか、出さない（スムーズさを優先）
-        console.debug(`Memory optimized for: ${word.word}`);
       } catch (error) {
         console.error("Background review processing failed:", error);
       }
@@ -300,6 +327,34 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
     }
   }, [searchQuery, savedWords]);
 
+  /**
+   * 発音記号の遅延補完（実装仕様書 F4）。
+   *
+   * 既存の保存済み単語には phonetic が無い。鉄則 R2 により一括更新はしないので、
+   * 詳細を開いたときに1件だけ取得して書き戻す。失敗しても UI には出さない
+   * （無くても困らない付加情報なので、エラーで邪魔をしない）。
+   */
+  const phoneticAttempts = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const saved = result as SavedWord | null;
+    if (!user || !saved?.id || saved.phonetic) return;
+    if (phoneticAttempts.current.has(saved.id)) return;
+    phoneticAttempts.current.add(saved.id);
+
+    (async () => {
+      try {
+        const phonetic = await fetchPhonetic(saved.word);
+        await updateDoc(doc(db, "words", saved.id), { phonetic, updatedAt: Date.now() });
+        setResult((prev) =>
+          prev && (prev as SavedWord).id === saved.id ? { ...prev, phonetic } : prev
+        );
+      } catch (e) {
+        console.debug("発音記号の補完をスキップしました:", e);
+      }
+    })();
+  }, [result, user]);
+
   // Re-search when mode changes if there's a query
   useEffect(() => {
     if (searchQuery.trim() && activeTab === 'detail') {
@@ -314,11 +369,16 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
     }
     
     try {
+      const now = Date.now();
       const wordData = {
         ...result,
         userId: user.uid,
-        timestamp: Date.now(),
+        timestamp: now,
         mode: dictionaryMode,
+        // v2 のフィールド。新規保存分だけ付ける（既存ドキュメントは書き換えない）
+        schemaVersion: 2,
+        wordLower: result.word.trim().toLowerCase(),
+        updatedAt: now,
       };
       await addDoc(collection(db, "words"), wordData);
       toast.success(`${result.word} をリストに追加しました！`);
@@ -337,31 +397,33 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
   };
 
   const startFlashcards = () => {
-    if (flashcardList.length === 0) {
+    if (savedWords.length === 0) {
       toast.error("保存された単語がありません。");
       return;
     }
-    setFlashcardIndex(0);
-    setIsFlipped(false);
+    // onlyDue は既定で false。43語程度では「期限が来たものだけ」だと
+    // 0件になる日があり、復習したいのにできない状態になるため。
+    const count = review.start(savedWords, { onlyDue: false });
+    if (count === 0) {
+      toast.error("復習できる単語がありません。");
+      return;
+    }
     setActiveTab("flashcards");
   };
 
-  const nextFlashcard = () => {
-    setIsFlipped(false);
-    setTimeout(() => {
-      setFlashcardIndex((prev) => (prev + 1) % flashcardList.length);
-    }, 150);
+  const exitFlashcards = () => {
+    review.end();
+    setActiveTab("detail");
   };
 
-  const prevFlashcard = () => {
-    setIsFlipped(false);
-    setTimeout(() => {
-      setFlashcardIndex((prev) => (prev - 1 + flashcardList.length) % flashcardList.length);
-    }, 150);
-  };
+  // 表示は先頭 N 件だけに絞る（実装仕様書 F2-c）。
+  // データ自体はローカルキャッシュ上に全件あり、復習・ナレッジマップ・
+  // 書き出しはいずれも savedWords 全体を参照するので機能は制限されない。
+  const visibleWords = savedWords.slice(0, visibleCount);
+  const hasMore = savedWords.length > visibleWords.length;
 
   // Group words by date
-  const groupedWords = savedWords.reduce((acc, word) => {
+  const groupedWords = visibleWords.reduce((acc, word) => {
     const date = format(word.timestamp, "yyyy/MM/dd");
     if (!acc[date]) acc[date] = [];
     acc[date].push(word);
@@ -533,6 +595,36 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
             単語カードで復習する
           </Button>
 
+          {/* 中断したセッションの再開（実装仕様書 F3）。リロードやタブ移動で
+              進行が失われないように localStorage から復元する。 */}
+          {!review.session && review.resumable && (
+            <div className="mt-2 p-3 rounded-xl bg-[#FFF7ED] border border-orange-100">
+              <p className="text-[11px] font-bold text-orange-800 leading-snug mb-2">
+                中断した復習が残っています（{review.resumable.index} / {review.resumable.queue.length} 枚）
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    review.resume();
+                    setActiveTab("flashcards");
+                  }}
+                  className="flex-1 h-8 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[11px] font-bold"
+                >
+                  再開する
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={review.discardResumable}
+                  className="h-8 rounded-lg text-[11px] font-bold text-orange-700 hover:bg-orange-100"
+                >
+                  破棄
+                </Button>
+              </div>
+            </div>
+          )}
+
           <Button 
             onClick={() => setActiveTab("map")}
             variant="ghost" 
@@ -610,6 +702,16 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                     </div>
                   </div>
                 ))}
+
+                {hasMore && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => setVisibleCount((n) => n + SIDEBAR_PAGE_SIZE)}
+                    className="w-full text-xs font-bold text-[#2A5CFF] hover:bg-[#E9F0FF] rounded-lg h-10"
+                  >
+                    さらに表示（残り {savedWords.length - visibleWords.length} 件）
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -657,173 +759,13 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                  }} 
                />
              </motion.div>
-          ) : activeTab === "flashcards" && flashcardList.length > 0 ? (
-            <motion.div
+          ) : activeTab === "flashcards" && review.session ? (
+            <ReviewMode
               key="flashcards"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="max-w-xl mx-auto flex flex-col h-full items-center justify-center py-6"
-            >
-              <div className="w-full flex justify-between items-center mb-8 md:mb-12">
-                <div>
-                  <h2 className="text-2xl font-black text-[#1A1C1E]">復習モード</h2>
-                  <p className="text-xs text-[#656E77] font-bold uppercase tracking-widest mt-1">
-                    Card {flashcardIndex + 1} of {flashcardList.length}
-                  </p>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setActiveTab("detail")}
-                  className="text-[#656E77] hover:text-[#1A1C1E] font-bold text-xs"
-                >
-                  終了する
-                </Button>
-              </div>
-
-              <div className="relative w-full aspect-[4/5] md:aspect-[4/3] perspective-1000 group cursor-pointer" onClick={() => setIsFlipped(!isFlipped)}>
-                <motion.div 
-                   className="w-full h-full relative preserve-3d transition-transform duration-500"
-                   animate={{ rotateY: isFlipped ? 180 : 0 }}
-                >
-                  {/* Front */}
-                  <div className="absolute inset-0 backface-hidden bg-white rounded-3xl border border-[#E5E7EB] shadow-xl flex flex-col items-center justify-center p-8 md:p-12 text-center">
-                    <div className="flex flex-col items-center gap-2 mb-4">
-                      <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em]">Word</span>
-                      {flashcardList[flashcardIndex].mode && (
-                        <span className="text-[9px] px-2 py-0.5 bg-[#F1F3F5] text-[#656E77] rounded-full font-bold uppercase tracking-widest border border-[#E5E7EB]">
-                          {flashcardList[flashcardIndex].mode}
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-3xl md:text-5xl font-black tracking-tighter text-[#1A1C1E]">{flashcardList[flashcardIndex].word}</h3>
-                    <p className="mt-8 text-[10px] md:text-xs text-[#656E77] flex items-center gap-2">
-                       <RotateCw className="w-3 h-3" />
-                       クリックして裏面を表示
-                    </p>
-                  </div>
-
-                  {/* Back */}
-                  <div className="absolute inset-0 backface-hidden rotate-y-180 bg-[#E9F0FF] rounded-3xl border border-[#2A5CFF]/20 shadow-xl flex flex-col p-10 overflow-auto">
-                    <div className="mb-6">
-                      <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em] mb-2 block">Meaning</span>
-                      <p className="text-2xl font-bold text-[#1A1C1E]">{flashcardList[flashcardIndex].meaning}</p>
-                    </div>
-
-                    <div className="mb-6">
-                      <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em] mb-2 block">Grammar</span>
-                      <p className="text-sm font-bold text-[#1A1C1E] inline-block px-2 py-0.5 bg-white/50 rounded">{flashcardList[flashcardIndex].grammar}</p>
-                    </div>
-
-                    {flashcardList[flashcardIndex].nuance && (
-                      <div className="mb-6">
-                        <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em] mb-2 block">Nuance / 使い分け</span>
-                        <p className="text-sm font-medium text-[#1A1C1E] leading-relaxed bg-white/30 p-3 rounded-xl border border-white/40">
-                          {flashcardList[flashcardIndex].nuance}
-                        </p>
-                      </div>
-                    )}
-
-                    {flashcardList[flashcardIndex].specializedContexts && flashcardList[flashcardIndex].specializedContexts.length > 0 && (
-                      <div className="mb-6">
-                        <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em] mb-2 block">Professional Perspectives</span>
-                        <div className="space-y-2">
-                          {flashcardList[flashcardIndex].specializedContexts.slice(0, 2).map((ctx, i) => (
-                            <div key={i} className="text-[10px] font-medium text-[#1A1C1E] bg-white/40 p-2 rounded-lg border border-white/50">
-                              <span className="font-bold text-[#2A5CFF] mr-2">[{ctx.field}]</span>
-                              {ctx.context}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em] mb-2 block">Example</span>
-                      <p className="text-sm font-medium text-[#1A1C1E] leading-relaxed italic border-l-2 border-[#2A5CFF]/30 pl-3">
-                        {flashcardList[flashcardIndex].examples[0]?.split('\n')[0]}
-                      </p>
-                    </div>
-
-                    <p className="mt-auto pt-4 text-center text-[10px] font-bold text-[#2A5CFF]/60 uppercase tracking-widest">
-                       Click to Flip Back
-                    </p>
-                  </div>
-                </motion.div>
-              </div>
-
-              {isFlipped && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mt-8 md:mt-12 w-full"
-                >
-                  <Button 
-                    onClick={(e) => { e.stopPropagation(); handleReview(ReviewRating.AGAIN); }}
-                    className="flex flex-col h-14 md:h-16 rounded-2xl bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 p-2"
-                  >
-                    <span className="text-xs font-black">AGAIN</span>
-                    <span className="text-[9px] md:text-[10px] opacity-70">忘れた</span>
-                  </Button>
-                  <Button 
-                    onClick={(e) => { e.stopPropagation(); handleReview(ReviewRating.HARD); }}
-                    className="flex flex-col h-14 md:h-16 rounded-2xl bg-orange-50 text-orange-600 border border-orange-100 hover:bg-orange-100 p-2"
-                  >
-                    <span className="text-xs font-black">HARD</span>
-                    <span className="text-[9px] md:text-[10px] opacity-70">難しい</span>
-                  </Button>
-                  <Button 
-                    onClick={(e) => { e.stopPropagation(); handleReview(ReviewRating.GOOD); }}
-                    className="flex flex-col h-14 md:h-16 rounded-2xl bg-green-50 text-green-600 border border-green-100 hover:bg-green-100 p-2"
-                  >
-                    <span className="text-xs font-black">GOOD</span>
-                    <span className="text-[9px] md:text-[10px] opacity-70">覚えた</span>
-                  </Button>
-                  <Button 
-                    onClick={(e) => { e.stopPropagation(); handleReview(ReviewRating.EASY); }}
-                    className="flex flex-col h-14 md:h-16 rounded-2xl bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-100 p-2"
-                  >
-                    <span className="text-xs font-black">EASY</span>
-                    <span className="text-[9px] md:text-[10px] opacity-70">余裕</span>
-                  </Button>
-                </motion.div>
-              )}
-
-              {flashcardList[flashcardIndex].aiAnalysis && !isFlipped && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="mt-6 p-4 bg-orange-50 rounded-2xl border border-orange-100 max-w-md"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <BrainCircuit className="w-4 h-4 text-orange-500" />
-                    <span className="text-[10px] font-bold text-orange-600 uppercase tracking-widest">AI Retention Insight</span>
-                  </div>
-                  <p className="text-xs text-orange-800 leading-relaxed">
-                    {flashcardList[flashcardIndex].aiAnalysis}
-                  </p>
-                </motion.div>
-              )}
-
-              <div className="flex gap-4 mt-8 md:mt-12 w-full">
-                <Button 
-                  onClick={(e) => { e.stopPropagation(); prevFlashcard(); }}
-                  variant="outline"
-                  className="flex-1 h-12 md:h-14 rounded-2xl border-2 border-[#E5E7EB] hover:border-[#2A5CFF] hover:text-[#2A5CFF] group text-xs md:text-sm"
-                >
-                  <ChevronLeft className="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2 group-hover:-translate-x-1 transition-transform" />
-                  前の単語
-                </Button>
-                <Button 
-                  onClick={(e) => { e.stopPropagation(); nextFlashcard(); }}
-                  variant="outline"
-                  className="flex-1 h-12 md:h-14 rounded-2xl border-2 border-[#E5E7EB] hover:border-[#2A5CFF] hover:text-[#2A5CFF] group text-xs md:text-sm"
-                >
-                  次の単語
-                  <ChevronRight className="w-4 h-4 md:w-5 md:h-5 ml-1 md:ml-2 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </div>
-            </motion.div>
+              api={review}
+              onGrade={handleReview}
+              onExit={exitFlashcards}
+            />
           ) : loading ? (
              <motion.div
                key="skeleton"
@@ -844,7 +786,24 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
             >
               <div className="flex justify-between items-start mb-10">
                 <div className="word-title-group min-w-0 pr-4">
-                  <h1 className="text-4xl md:text-6xl font-black tracking-tighter text-[#1A1C1E] mb-2 break-all md:break-words">{result.word}</h1>
+                  <div className="flex items-center gap-4 mb-2">
+                    <h1 className="text-4xl md:text-6xl font-black tracking-tighter text-[#1A1C1E] break-all md:break-words">{result.word}</h1>
+                    {ttsAvailable && result.word && (
+                      <button
+                        type="button"
+                        onClick={() => speak(result.word, loadTtsSettings())}
+                        title="発音を再生"
+                        className="w-11 h-11 shrink-0 rounded-full bg-white border border-[#E5E7EB] text-[#2A5CFF] flex items-center justify-center hover:bg-[#E9F0FF] hover:border-[#2A5CFF]/30 transition-colors"
+                      >
+                        <Volume2 className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
+                  {formatPhonetic(result.phonetic) && (
+                    <p className="text-base md:text-lg text-[#656E77] font-medium tracking-wide mb-3">
+                      {formatPhonetic(result.phonetic)}
+                    </p>
+                  )}
                   <div className="flex gap-2">
                     <span className="inline-block px-3 py-1 bg-[#E9F0FF] text-[#2A5CFF] text-sm font-bold rounded-md">
                       {result.grammar}
@@ -973,10 +932,22 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                       <div className="flex-1 h-[1px] bg-[#E5E7EB]" />
                     </div>
                     <div className="space-y-6">
-                      {result.examples.map((ex, i) => (
+                      {normalizeExamples(result.examples).map((ex, i) => (
                         <div key={i} className="pl-4 border-l-4 border-[#E5E7EB]">
-                          <p className="text-[#1A1C1E] font-bold text-base mb-1">{ex.split('\n')[0]}</p>
-                          <p className="text-[#656E77] text-sm">{ex.split('\n')[1]}</p>
+                          <div className="flex items-start gap-2 mb-1">
+                            <p className="text-[#1A1C1E] font-bold text-base flex-1">{ex.en}</p>
+                            {ttsAvailable && ex.en && (
+                              <button
+                                type="button"
+                                onClick={() => speak(ex.en, loadTtsSettings())}
+                                title="例文を読み上げる"
+                                className="w-7 h-7 shrink-0 rounded-full text-[#656E77] hover:text-[#2A5CFF] hover:bg-[#E9F0FF] flex items-center justify-center transition-colors"
+                              >
+                                <Volume2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-[#656E77] text-sm">{ex.ja}</p>
                         </div>
                       ))}
                     </div>
