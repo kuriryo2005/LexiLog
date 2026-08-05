@@ -4,33 +4,19 @@
  */
 
 import React, { useState, useEffect, useRef } from "react";
-import { 
-  Search, 
-  BookOpen, 
-  History, 
-  Plus, 
-  Trash2, 
-  Loader2, 
-  LogIn, 
-  LogOut, 
-  User,
-  RotateCw,
+import {
+  BookOpen,
+  Plus,
+  Trash2,
+  Loader2,
+  LogIn,
+  LogOut,
   ChevronLeft,
   ChevronRight,
   BrainCircuit,
-  GraduationCap,
-  Globe,
   Map as MapIcon,
-  Hammer,
-  Coins,
-  Trophy,
-  Activity,
-  Gavel,
-  Code,
-  Sparkles,
   Download,
   Volume2,
-  Layers,
   ClipboardPaste,
   Home,
   Tag as TagIcon,
@@ -39,7 +25,12 @@ import {
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 import { lookupWord, planNextReview, getCachedWord, fetchPhonetic } from "./services/geminiService";
-import { coerceWordDetail, normalizeExamples, normalizeWord } from "./lib/normalize";
+import {
+  TARGET_SCHEMA_VERSION,
+  coerceWordDetail,
+  normalizeExamples,
+  normalizeWord,
+} from "./lib/normalize";
 import { WordDetail, SavedWord, DictionaryMode, ReviewRating, ReviewSession, UserStats, WordFilter } from "./types";
 import { useReviewSession } from "./hooks/useReviewSession";
 import { useDecks } from "./hooks/useDecks";
@@ -55,6 +46,7 @@ import {
 } from "./lib/tts";
 import { EtymologyGraph } from "./components/EtymologyGraph";
 import { KnowledgeMap } from "./components/KnowledgeMap";
+import { Wordbook } from "./components/Wordbook";
 import { DataTransferModal } from "./components/DataTransferModal";
 import { ReviewMode } from "./components/ReviewMode";
 import { Dashboard } from "./components/Dashboard";
@@ -63,11 +55,7 @@ import { BulkExtractModal } from "./components/BulkExtractModal";
 import { Input } from "./components/ui/input";
 import { Button } from "./components/ui/button";
 import { Skeleton } from "./components/ui/skeleton";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./components/ui/card";
-import { Badge } from "./components/ui/badge";
 import { ScrollArea } from "./components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
-import { Separator } from "./components/ui/separator";
 import { Toaster, toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
 import { auth, db } from "./firebase";
@@ -129,21 +117,17 @@ function WordSkeleton() {
   return (
     <div className="max-w-4xl mx-auto flex flex-col h-full animate-pulse">
       <div className="flex justify-between items-start mb-10">
-        <div className="space-y-4">
-          <Skeleton className="h-16 w-64 rounded-xl" />
-          <div className="flex gap-2">
-            <Skeleton className="h-6 w-20 rounded-md" />
-            <Skeleton className="h-6 w-24 rounded-md" />
-          </div>
+        <div className="space-y-3">
+          <Skeleton className="h-14 w-64 rounded-none" />
+          <Skeleton className="h-4 w-40 rounded-none" />
         </div>
-        <Skeleton className="h-11 w-32 rounded-full" />
+        <Skeleton className="h-6 w-28 rounded-none" />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1">
-        <Skeleton className="md:col-span-2 h-32 rounded-2xl" />
-        <Skeleton className="md:col-span-2 h-40 rounded-2xl" />
-        <Skeleton className="md:col-span-2 h-64 rounded-2xl" />
-        <Skeleton className="h-64 rounded-2xl" />
-        <Skeleton className="h-64 rounded-2xl" />
+      <div className="max-w-3xl space-y-14">
+        <Skeleton className="h-20 w-full rounded-none" />
+        <Skeleton className="h-28 w-full rounded-none" />
+        <Skeleton className="h-40 w-full rounded-none" />
+        <Skeleton className="h-40 w-full rounded-none" />
       </div>
     </div>
   );
@@ -156,7 +140,9 @@ export default function App() {
   const [result, setResult] = useState<WordDetail | null>(null);
   const [savedWords, setSavedWords] = useState<SavedWord[]>([]);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [activeTab, setActiveTab] = useState<"home" | "detail" | "flashcards" | "map">("home");
+  const [activeTab, setActiveTab] = useState<
+    "home" | "detail" | "flashcards" | "map" | "wordbook"
+  >("home");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [dictionaryMode, setDictionaryMode] = useState<DictionaryMode>(DictionaryMode.GENERAL);
   /** サイドバーに描画する件数。全件を一度に DOM へ出さない（実装仕様書 F2-c）。 */
@@ -432,13 +418,19 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
     
     try {
       const now = Date.now();
+      // id と examplePairs は読み取り時に作る派生値。書き戻さない
+      const { id: _id, examplePairs: _pairs, ...detail } = result as unknown as Record<
+        string,
+        unknown
+      >;
+
       const wordData = {
-        ...result,
+        ...detail,
         userId: user.uid,
         timestamp: now,
         mode: dictionaryMode,
-        // v2 のフィールド。新規保存分だけ付ける（既存ドキュメントは書き換えない）
-        schemaVersion: 2,
+        // v3 のフィールド。新規保存分だけ付ける（既存ドキュメントは書き換えない）
+        schemaVersion: TARGET_SCHEMA_VERSION,
         wordLower: result.word.trim().toLowerCase(),
         updatedAt: now,
       };
@@ -551,35 +543,25 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
   // 検索は AI 生成を伴うため、認証なしに叩ける経路を残さない（実装仕様書 F1）。
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F8F9FA] p-6">
+      <div className="min-h-screen flex items-center justify-center bg-white p-6">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-sm text-center"
+          className="w-full max-w-sm"
         >
-          <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/10 mb-8 mx-auto">
-            <div className="w-12 h-12 bg-[#2A5CFF] rounded-2xl flex items-center justify-center">
-              <BookOpen className="w-6 h-6 text-white" />
-            </div>
-          </div>
-
           <h1 className="text-3xl font-black tracking-tight text-[#1A1C1E] mb-3">
             Cortex Dictionary
           </h1>
           <p className="text-sm text-[#656E77] leading-relaxed mb-10">
-            AIが専門分野や語源から知識の繋がりを生成する英単語辞書です。
-            利用するにはログインしてください。
+            英単語の意味、語源、例文を調べて保存し、間隔を空けて復習するための辞書です。
           </p>
 
-          <Button
-            onClick={handleLogin}
-            className="w-full h-12 rounded-2xl bg-[#2A5CFF] hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-200"
-          >
-            <LogIn className="w-4 h-4 mr-2" />
+          <button type="button" onClick={handleLogin} className="btn-primary w-full">
+            <LogIn className="w-4 h-4" />
             Google でログイン
-          </Button>
+          </button>
 
-          <p className="text-[10px] text-[#656E77]/70 mt-6 leading-relaxed">
+          <p className="text-[11px] text-[#8A9199] mt-8 leading-relaxed">
             保存した単語はアカウントごとに管理され、他のユーザーからは見えません。
           </p>
         </motion.div>
@@ -589,15 +571,16 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
   }
 
   return (
-    <div className="flex h-screen bg-[#F8F9FA] overflow-hidden relative">
+    <div className="flex h-screen bg-white overflow-hidden relative print:h-auto print:overflow-visible print:block">
       {/* Mobile Toggle */}
-      <div className="lg:hidden fixed bottom-6 right-6 z-[100]">
-        <Button 
+      <div className="lg:hidden fixed bottom-6 right-6 z-[100] print:hidden">
+        <button
+          type="button"
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="w-14 h-14 rounded-full shadow-2xl bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center p-0"
+          className="w-12 h-12 bg-[#1A1C1E] text-white flex items-center justify-center"
         >
-          {isSidebarOpen ? <ChevronLeft className="w-6 h-6" /> : <BookOpen className="w-6 h-6" />}
-        </Button>
+          {isSidebarOpen ? <ChevronLeft className="w-5 h-5" /> : <BookOpen className="w-5 h-5" />}
+        </button>
       </div>
 
       {/* Sidebar Overlay */}
@@ -617,17 +600,13 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
       <aside className={`
         fixed lg:relative z-[90] h-full
         w-[280px] md:w-[320px] 
-        bg-white border-r border-[#E5E7EB] flex flex-col transition-transform duration-300 ease-out
+        bg-white border-r border-[#EAECEF] flex flex-col transition-transform duration-300 ease-out
+        print:hidden
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
-        <div className="p-6 border-b border-[#E5E7EB]">
-          <div className="flex items-center justify-between gap-3 mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#2A5CFF] rounded-xl flex items-center justify-center shadow-lg shadow-blue-100">
-                <BookOpen className="text-white w-5 h-5" />
-              </div>
-              <h1 className="text-xl font-extrabold tracking-tight">Cortex Dictionary</h1>
-            </div>
+        <div className="p-6 border-b border-[#EAECEF]">
+          <div className="flex items-center justify-between gap-3 mb-7">
+            <h1 className="text-base font-black tracking-tight">Cortex Dictionary</h1>
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setIsSidebarOpen(false)}>
               <ChevronLeft className="w-5 h-5" />
             </Button>
@@ -635,27 +614,26 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
 
           <form onSubmit={handleSearch} className="relative group">
             <Input
-              placeholder="単語を検索..."
+              placeholder="単語を検索"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onFocus={() => searchQuery.length > 1 && setShowSuggestions(true)}
-              className="w-full pl-4 h-11 rounded-lg border-2 border-[#E5E7EB] bg-[#F1F3F5] focus:bg-white focus:border-[#2A5CFF] transition-all text-sm mb-3"
+              className="field h-10 text-sm mb-5"
             />
             {loading && (
-              <div className="absolute right-3 top-3">
-                <Loader2 className="w-5 h-5 animate-spin text-[#2A5CFF]" />
+              <div className="absolute right-0 top-2.5">
+                <Loader2 className="w-4 h-4 animate-spin text-[#2A5CFF]" />
               </div>
             )}
-            
+
             <AnimatePresence>
               {showSuggestions && suggestions.length > 0 && (
-                <motion.div 
-                  initial={{ opacity: 0, y: -10 }}
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="absolute top-full left-0 right-0 z-50 bg-white rounded-xl shadow-2xl border border-gray-100 p-2 space-y-1 mb-4"
+                  exit={{ opacity: 0, y: -6 }}
+                  className="absolute top-full left-0 right-0 z-50 bg-white shadow-lg py-2"
                 >
-                  <p className="px-3 py-1 text-[9px] font-black text-[#656E77] uppercase tracking-widest">History Suggestions</p>
                   {suggestions.map((s) => (
                     <button
                       key={s.id}
@@ -663,10 +641,10 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                         setSearchQuery(s.word);
                         handleSearch(undefined, s.word);
                       }}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-50 transition-colors flex items-center justify-between"
+                      className="w-full text-left px-3 py-2 hover:bg-[#F5F6F7] transition-colors flex items-center justify-between"
                     >
-                      <span className="text-xs font-bold text-gray-700">{s.word}</span>
-                      <span className="text-[10px] text-gray-400 font-medium truncate ml-4 italic">{s.meaning.slice(0, 15)}...</span>
+                      <span className="text-xs font-bold text-[#1A1C1E]">{s.word}</span>
+                      <span className="text-[10px] text-[#8A9199] truncate ml-4">{s.meaning.slice(0, 15)}</span>
                     </button>
                   ))}
                 </motion.div>
@@ -674,23 +652,25 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
             </AnimatePresence>
           </form>
 
-          <div className="grid grid-cols-2 gap-1 p-1 bg-[#F1F3F5] rounded-xl mb-4">
-            <button
-              onClick={() => setDictionaryMode(DictionaryMode.GENERAL)}
-              className={`flex flex-col items-center justify-center py-2 rounded-lg transition-all ${dictionaryMode === DictionaryMode.GENERAL ? 'bg-white shadow-sm text-[#2A5CFF]' : 'text-[#656E77] hover:bg-white/50'}`}
-              title="一般"
-            >
-              <Globe className="w-5 h-5 mb-1" />
-              <span className="text-[10px] font-bold">一般</span>
-            </button>
-            <button
-              onClick={() => setDictionaryMode(DictionaryMode.ACADEMIC)}
-              className={`flex flex-col items-center justify-center py-2 rounded-lg transition-all ${dictionaryMode === DictionaryMode.ACADEMIC ? 'bg-white shadow-sm text-[#2A5CFF]' : 'text-[#656E77] hover:bg-white/50'}`}
-              title="学術"
-            >
-              <GraduationCap className="w-5 h-5 mb-1" />
-              <span className="text-[10px] font-bold">学術</span>
-            </button>
+          {/* 検索モード。切替の状態は下線で示す */}
+          <div className="flex gap-5 mb-6">
+            {[
+              { mode: DictionaryMode.GENERAL, label: "一般" },
+              { mode: DictionaryMode.ACADEMIC, label: "学術" },
+            ].map(({ mode, label }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setDictionaryMode(mode)}
+                className={`text-xs font-bold pb-1 border-b-2 transition-colors ${
+                  dictionaryMode === mode
+                    ? "text-[#1A1C1E] border-[#1A1C1E]"
+                    : "text-[#8A9199] border-transparent hover:text-[#1A1C1E]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
           {/* デッキとタグの絞り込み（F7）。一覧・復習・マップに同時に効く。 */}
@@ -705,7 +685,7 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                 }));
                 setVisibleCount(SIDEBAR_PAGE_SIZE);
               }}
-              className="flex-1 h-9 px-2 rounded-lg border-2 border-[#E5E7EB] bg-white text-[11px] font-bold text-[#1A1C1E]"
+              className="flex-1 h-8 bg-transparent border-0 border-b border-[#E5E7EB] rounded-none text-[11px] font-bold text-[#1A1C1E] focus:outline-none"
             >
               <option value="__all">すべてのデッキ</option>
               <option value="__none">未分類</option>
@@ -715,19 +695,18 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                 </option>
               ))}
             </select>
-            <Button
-              variant="ghost"
-              size="icon"
+            <button
+              type="button"
               onClick={() => setIsDeckManagerOpen(true)}
               title="デッキを管理"
-              className="w-9 h-9 shrink-0 rounded-lg border-2 border-[#E5E7EB] text-[#656E77] hover:text-[#2A5CFF]"
+              className="h-8 shrink-0 text-[11px] font-bold text-[#8A9199] hover:text-[#2A5CFF] transition-colors"
             >
-              <Layers className="w-4 h-4" />
-            </Button>
+              管理
+            </button>
           </div>
 
           {allTags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-2">
+            <div className="flex flex-wrap gap-x-3 gap-y-1.5 mb-2">
               {allTags.slice(0, 12).map(({ tag, count }) => {
                 const active = filter.tags.some((t) => t.toLowerCase() === tag.toLowerCase());
                 return (
@@ -742,13 +721,13 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                           : [...f.tags, tag],
                       }))
                     }
-                    className={`text-[10px] px-2 py-1 rounded-full font-bold border transition-colors ${
+                    className={`text-[11px] font-bold transition-colors ${
                       active
-                        ? "bg-[#2A5CFF] text-white border-[#2A5CFF]"
-                        : "bg-white text-[#656E77] border-[#E5E7EB] hover:border-[#2A5CFF]/40"
+                        ? "text-[#2A5CFF] underline underline-offset-4"
+                        : "text-[#8A9199] hover:text-[#1A1C1E]"
                     }`}
                   >
-                    {tag} <span className="opacity-60">{count}</span>
+                    {tag} <span className="opacity-50">{count}</span>
                   </button>
                 );
               })}
@@ -756,7 +735,7 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                 <button
                   type="button"
                   onClick={() => setFilter({ tags: [] })}
-                  className="text-[10px] px-2 py-1 rounded-full font-bold text-[#656E77] hover:text-red-500 flex items-center gap-1"
+                  className="text-[11px] font-bold text-[#8A9199] hover:text-red-500 flex items-center gap-1"
                 >
                   <X className="w-3 h-3" />
                   解除
@@ -765,153 +744,166 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
             </div>
           )}
 
-          <Button
-            onClick={() => setActiveTab("home")}
-            variant="ghost"
-            className={`w-full mt-2 justify-start font-bold text-xs h-10 rounded-lg ${activeTab === 'home' ? 'bg-[#E9F0FF] text-[#2A5CFF]' : 'text-[#656E77] hover:bg-gray-100'}`}
-          >
-            <Home className="w-4 h-4 mr-2" />
-            今日の学習
-          </Button>
+          <nav className="mt-5 space-y-0.5">
+            <button
+              type="button"
+              onClick={() => setActiveTab("home")}
+              className={`w-full flex items-center gap-2.5 h-9 text-xs font-bold transition-colors ${
+                activeTab === "home" ? "text-[#2A5CFF]" : "text-[#656E77] hover:text-[#1A1C1E]"
+              }`}
+            >
+              <Home className="w-4 h-4" />
+              今日の学習
+            </button>
 
-          <Button
-            onClick={() => setIsExtractOpen(true)}
-            variant="ghost"
-            className="w-full mt-2 justify-start text-[#656E77] hover:bg-gray-100 font-bold text-xs h-10 rounded-lg"
-          >
-            <ClipboardPaste className="w-4 h-4 mr-2" />
-            英文から単語を集める
-          </Button>
+            <button
+              type="button"
+              onClick={() => startFlashcards()}
+              className="w-full flex items-center gap-2.5 h-9 text-xs font-bold text-[#656E77] hover:text-[#1A1C1E] transition-colors"
+            >
+              <BrainCircuit className="w-4 h-4" />
+              単語カードで復習
+            </button>
 
-          <Button
-            onClick={() => startFlashcards()}
-            variant="ghost"
-            className="w-full mt-2 justify-start text-[#2A5CFF] hover:bg-[#E9F0FF] font-bold text-xs h-10 rounded-lg"
-          >
-            <BrainCircuit className="w-4 h-4 mr-2" />
-            単語カードで復習する
-          </Button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("map")}
+              className={`w-full flex items-center gap-2.5 h-9 text-xs font-bold transition-colors ${
+                activeTab === "map" ? "text-[#2A5CFF]" : "text-[#656E77] hover:text-[#1A1C1E]"
+              }`}
+            >
+              <MapIcon className="w-4 h-4" />
+              単語のつながり
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("wordbook")}
+              className={`w-full flex items-center gap-2.5 h-9 text-xs font-bold transition-colors ${
+                activeTab === "wordbook" ? "text-[#2A5CFF]" : "text-[#656E77] hover:text-[#1A1C1E]"
+              }`}
+            >
+              <BookOpen className="w-4 h-4" />
+              単語帳
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsExtractOpen(true)}
+              className="w-full flex items-center gap-2.5 h-9 text-xs font-bold text-[#656E77] hover:text-[#1A1C1E] transition-colors"
+            >
+              <ClipboardPaste className="w-4 h-4" />
+              英文から単語を追加
+            </button>
+          </nav>
 
           {/* 中断したセッションの再開（実装仕様書 F3）。リロードやタブ移動で
               進行が失われないように localStorage から復元する。 */}
           {!review.session && review.resumable && (
-            <div className="mt-2 p-3 rounded-xl bg-[#FFF7ED] border border-orange-100">
-              <p className="text-[11px] font-bold text-orange-800 leading-snug mb-2">
+            <div className="mt-5 pt-4 border-t border-[#EAECEF]">
+              <p className="text-[11px] text-[#656E77] leading-snug mb-3">
                 中断した復習が残っています（{review.resumable.index} / {review.resumable.queue.length} 枚）
               </p>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
                   onClick={() => {
                     review.resume();
                     setActiveTab("flashcards");
                   }}
-                  className="flex-1 h-8 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[11px] font-bold"
+                  className="text-[11px] font-bold text-[#2A5CFF] border-b border-[#2A5CFF]"
                 >
                   再開する
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
+                </button>
+                <button
+                  type="button"
                   onClick={review.discardResumable}
-                  className="h-8 rounded-lg text-[11px] font-bold text-orange-700 hover:bg-orange-100"
+                  className="text-[11px] font-bold text-[#8A9199] hover:text-red-500"
                 >
                   破棄
-                </Button>
+                </button>
               </div>
             </div>
           )}
-
-          <Button 
-            onClick={() => setActiveTab("map")}
-            variant="ghost" 
-            className={`w-full mt-2 justify-start font-bold text-xs h-10 rounded-lg ${activeTab === 'map' ? 'bg-[#E9F0FF] text-[#2A5CFF]' : 'text-[#656E77] hover:bg-gray-100'}`}
-          >
-            <MapIcon className="w-4 h-4 mr-2" />
-            語彙ナレッジマップ
-          </Button>
         </div>
 
         <ScrollArea className="flex-1 min-h-0">
           <div className="p-6 pt-2">
             {!user ? (
-              <div className="text-center py-12 px-4">
-                <User className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+              <div className="py-10">
                 <p className="text-xs text-[#656E77] mb-4">保存するにはログインが必要です</p>
-                <Button onClick={handleLogin} size="sm" className="w-full bg-[#2A5CFF] rounded-lg">ログイン</Button>
+                <button type="button" onClick={handleLogin} className="btn-quiet h-9 px-0 text-xs">
+                  ログイン
+                </button>
               </div>
             ) : filteredWords.length === 0 ? (
-              <div className="text-center py-12 px-4">
-                <History className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-                <p className="text-xs text-[#656E77]">
+              <div className="py-10">
+                <p className="text-xs text-[#8A9199]">
                   {isFilterActive(filter)
                     ? "この絞り込みに該当する単語はありません"
                     : "保存された単語はありません"}
                 </p>
               </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-8">
                 {sortedDates.map(date => (
                   <div key={date}>
-                    <h3 className="text-[11px] font-bold text-[#656E77] uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <h3 className="text-[10px] font-bold text-[#8A9199] uppercase tracking-[0.12em] mb-3">
                       {date}
                     </h3>
-                    <div className="space-y-1">
-                      {groupedWords[date].map((word) => (
-                        <div
-                          key={word.id}
-                          onClick={() => {
-                            setResult(word);
-                            setActiveTab("detail");
-                          }}
-                          className={`group p-3 rounded-lg cursor-pointer transition-all border border-transparent hover:bg-[#F1F3F5] ${result?.word === word.word && activeTab === 'detail' ? 'bg-[#E9F0FF] border-[#2A5CFF]/10' : ''}`}
-                        >
-                          <div className="flex justify-between items-start gap-2">
-                            <div className="min-w-0 flex-1">
-                              <div className={`font-bold text-sm break-words flex items-center justify-between ${result?.word === word.word ? 'text-[#2A5CFF]' : 'text-[#1A1C1E]'}`}>
-                                <span>{word.word}</span>
-                                {word.mode && (
-                                  <span className="text-[9px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded font-normal uppercase tracking-tighter">
-                                    {word.mode === DictionaryMode.GENERAL ? 'Gen' : word.mode === DictionaryMode.ACADEMIC ? 'Aca' : 'Eng'}
-                                  </span>
+                    <div>
+                      {groupedWords[date].map((word) => {
+                        const selected = result?.word === word.word && activeTab === "detail";
+                        return (
+                          <div
+                            key={word.id}
+                            onClick={() => {
+                              setResult(word);
+                              setActiveTab("detail");
+                            }}
+                            className="group py-2.5 cursor-pointer border-t border-[#F1F3F5] first:border-t-0"
+                          >
+                            <div className="flex justify-between items-start gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className={`font-bold text-sm break-words ${selected ? "text-[#2A5CFF]" : "text-[#1A1C1E]"}`}>
+                                  {word.word}
+                                </div>
+                                <div className="text-[11px] text-[#656E77] line-clamp-2 mt-0.5 leading-snug">
+                                  {word.meaning}
+                                </div>
+                                {word.nextReviewAt && (
+                                  <div className={`mt-1 text-[10px] ${word.nextReviewAt < Date.now() ? "text-red-500" : "text-[#8A9199]"}`}>
+                                    復習 {format(word.nextReviewAt, "MM/dd HH:mm", { locale: ja })}
+                                  </div>
                                 )}
                               </div>
-                              <div className="text-[11px] text-[#656E77] line-clamp-2 mt-1 leading-tight">
-                                {word.meaning}
-                              </div>
-                              {word.nextReviewAt && (
-                                <div className={`flex items-center gap-1.5 mt-1.5 text-[9px] font-bold ${word.nextReviewAt < Date.now() ? 'text-red-500' : 'text-blue-500/70'}`}>
-                                  <div className={`w-1 h-1 rounded-full ${word.nextReviewAt < Date.now() ? 'bg-red-500 animate-pulse' : 'bg-blue-300'}`} />
-                                  <span>Review: {format(word.nextReviewAt, "MM/dd HH:mm", { locale: ja })}</span>
-                                </div>
-                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteWord(word.id);
+                                }}
+                                title="削除"
+                                className="w-6 h-6 shrink-0 flex items-center justify-center text-[#C9CDD2] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteWord(word.id);
-                              }}
-                              className="w-6 h-6 shrink-0 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
 
                 {hasMore && (
-                  <Button
-                    variant="ghost"
+                  <button
+                    type="button"
                     onClick={() => setVisibleCount((n) => n + SIDEBAR_PAGE_SIZE)}
-                    className="w-full text-xs font-bold text-[#2A5CFF] hover:bg-[#E9F0FF] rounded-lg h-10"
+                    className="text-xs font-bold text-[#2A5CFF] border-b border-[#2A5CFF]"
                   >
                     さらに表示（残り {filteredWords.length - visibleWords.length} 件）
-                  </Button>
+                  </button>
                 )}
               </div>
             )}
@@ -919,39 +911,44 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
         </ScrollArea>
 
         {user && (
-          <div className="p-4 border-t border-[#E5E7EB] bg-white space-y-2">
+          <div className="px-6 py-4 border-t border-[#EAECEF] bg-white space-y-3">
             {/* 一括取り込みした単語の詳細生成の進捗（F5） */}
             {enriching.remaining > 0 && (
-              <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[#F0F4FF]">
+              <div className="flex items-center gap-2">
                 <Loader2 className="w-3 h-3 text-[#2A5CFF] animate-spin shrink-0" />
                 <span className="text-[10px] font-bold text-[#2A5CFF]">
                   詳細を生成中 残り {enriching.remaining} 語
                 </span>
               </div>
             )}
-            <Button
+            <button
+              type="button"
               onClick={() => setIsDataModalOpen(true)}
-              variant="ghost"
-              className="w-full justify-start text-[#656E77] hover:bg-gray-100 font-bold text-xs h-9 rounded-lg"
+              className="flex items-center gap-2.5 text-xs font-bold text-[#656E77] hover:text-[#1A1C1E] transition-colors"
             >
-              <Download className="w-4 h-4 mr-2" />
+              <Download className="w-4 h-4" />
               データの書き出し / 復元
-            </Button>
+            </button>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <img src={user.photoURL || ""} alt="" className="w-8 h-8 rounded-full border border-gray-100" referrerPolicy="no-referrer" />
-                <span className="text-xs font-bold truncate max-w-[120px]">{user.displayName}</span>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <img src={user.photoURL || ""} alt="" className="w-6 h-6 rounded-full" referrerPolicy="no-referrer" />
+                <span className="text-xs font-bold truncate max-w-[140px]">{user.displayName}</span>
               </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="text-[#656E77] hover:text-red-500">
+              <button
+                type="button"
+                onClick={handleLogout}
+                title="ログアウト"
+                className="w-7 h-7 flex items-center justify-center text-[#8A9199] hover:text-red-500"
+              >
                 <LogOut className="w-4 h-4" />
-              </Button>
+              </button>
             </div>
           </div>
         )}
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 h-full overflow-y-auto bg-[#F8F9FA] p-4 md:p-8 lg:p-12">
+      <main className="flex-1 h-full overflow-y-auto bg-white p-6 md:p-10 lg:p-16 print:h-auto print:overflow-visible print:p-0">
         <AnimatePresence mode="wait">
           {activeTab === "home" ? (
             <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -981,9 +978,34 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                  onWordClick={(w) => {
                    setResult(w);
                    setActiveTab("detail");
-                 }} 
+                 }}
+                 onSearchWord={(word) => {
+                   setSearchQuery(word);
+                   handleSearch(undefined, word);
+                   setActiveTab("detail");
+                 }}
+                 onStoryGenerated={async (wordId, story) => {
+                   try {
+                     await updateDoc(doc(db, "words", wordId), {
+                       etymologyStory: story,
+                       updatedAt: Date.now(),
+                     });
+                   } catch (e) {
+                     console.error("語源の解説を保存できませんでした:", e);
+                   }
+                 }}
                />
              </motion.div>
+          ) : activeTab === "wordbook" ? (
+            <motion.div key="wordbook" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <Wordbook
+                words={filteredWords}
+                onWordClick={(w) => {
+                  setResult(w);
+                  setActiveTab("detail");
+                }}
+              />
+            </motion.div>
           ) : activeTab === "flashcards" && review.session ? (
             <ReviewMode
               key="flashcards"
@@ -1009,64 +1031,50 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
               exit={{ opacity: 0, x: -10 }}
               className="max-w-4xl mx-auto flex flex-col h-full"
             >
-              <div className="flex justify-between items-start mb-10">
-                <div className="word-title-group min-w-0 pr-4">
-                  <div className="flex items-center gap-4 mb-2">
+              <div className="flex justify-between items-start gap-6 mb-10">
+                <div className="word-title-group min-w-0">
+                  <div className="flex items-center gap-3 mb-2">
                     <h1 className="text-4xl md:text-6xl font-black tracking-tighter text-[#1A1C1E] break-all md:break-words">{result.word}</h1>
                     {ttsAvailable && result.word && (
                       <button
                         type="button"
                         onClick={() => speak(result.word, loadTtsSettings())}
                         title="発音を再生"
-                        className="w-11 h-11 shrink-0 rounded-full bg-white border border-[#E5E7EB] text-[#2A5CFF] flex items-center justify-center hover:bg-[#E9F0FF] hover:border-[#2A5CFF]/30 transition-colors"
+                        className="w-9 h-9 shrink-0 text-[#8A9199] hover:text-[#2A5CFF] flex items-center justify-center transition-colors"
                       >
                         <Volume2 className="w-5 h-5" />
                       </button>
                     )}
                   </div>
                   {formatPhonetic(result.phonetic) && (
-                    <p className="text-base md:text-lg text-[#656E77] font-medium tracking-wide mb-3">
+                    <p className="text-base md:text-lg text-[#656E77] tracking-wide mb-3">
                       {formatPhonetic(result.phonetic)}
                     </p>
                   )}
-                  <div className="flex gap-2">
-                    <span className="inline-block px-3 py-1 bg-[#E9F0FF] text-[#2A5CFF] text-sm font-bold rounded-md">
-                      {result.grammar}
-                    </span>
-                     {('mode' in result || dictionaryMode) && (
-                      <span className="inline-block px-3 py-1 bg-[#F1F3F5] text-[#656E77] text-sm font-bold rounded-md flex items-center gap-1.5">
-                        {(() => {
-                           const m = ('mode' in result ? (result as SavedWord).mode : dictionaryMode);
-                           if (m === DictionaryMode.ACADEMIC) return <GraduationCap className="w-3.5 h-3.5" />;
-                           return <Globe className="w-3.5 h-3.5" />;
-                        })()}
-                        {('mode' in result ? (result as SavedWord).mode : dictionaryMode)}
-                      </span>
-                    )}
-                    {result.category && (
-                      <span className="inline-block px-3 py-1 bg-[#2A5CFF]/10 text-[#2A5CFF] text-sm font-bold rounded-md border border-[#2A5CFF]/20">
-                        {result.category}
-                      </span>
-                    )}
-                  </div>
+                  {/* 属性は中点区切りの一行。個別に囲まない */}
+                  <p className="text-sm font-bold text-[#8A9199]">
+                    {[
+                      result.grammar,
+                      "mode" in result ? (result as SavedWord).mode : dictionaryMode,
+                      result.category,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
                 </div>
-                <Button 
-                  onClick={saveWord}
-                  variant="outline" 
-                  className="rounded-full border-2 border-[#2A5CFF] text-[#2A5CFF] font-bold hover:bg-[#E9F0FF] px-6"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
+                <button type="button" onClick={saveWord} className="btn-quiet shrink-0 px-0 text-sm">
+                  <Plus className="w-4 h-4" />
                   リストに追加
-                </Button>
+                </button>
               </div>
 
               {/* タグ / デッキ（F7）。保存済みの単語にのみ出す。 */}
               {(result as SavedWord).id && (
-                <div className="flex flex-wrap items-center gap-2 mb-8 -mt-4">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-10 pb-5 border-b border-[#EAECEF]">
                   <select
                     value={(result as SavedWord).deckId ?? ""}
                     onChange={(e) => moveToDeck(result as SavedWord, e.target.value || null)}
-                    className="h-8 px-2 rounded-lg border border-[#E5E7EB] bg-white text-[11px] font-bold text-[#656E77]"
+                    className="h-8 bg-transparent border-0 rounded-none text-[11px] font-bold text-[#656E77] focus:outline-none"
                   >
                     <option value="">未分類</option>
                     {decks.decks.map((d) => (
@@ -1079,7 +1087,7 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                   {((result as SavedWord).tags ?? []).map((tag) => (
                     <span
                       key={tag}
-                      className="h-8 pl-3 pr-1.5 rounded-lg bg-[#F1F3F5] text-[11px] font-bold text-[#1A1C1E] flex items-center gap-1"
+                      className="text-[11px] font-bold text-[#1A1C1E] flex items-center gap-1"
                     >
                       {tag}
                       <button
@@ -1090,15 +1098,15 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                             ((result as SavedWord).tags ?? []).filter((t) => t !== tag)
                           )
                         }
-                        className="w-5 h-5 rounded flex items-center justify-center text-[#656E77] hover:text-red-500"
+                        className="w-4 h-4 flex items-center justify-center text-[#C9CDD2] hover:text-red-500"
                       >
                         <X className="w-3 h-3" />
                       </button>
                     </span>
                   ))}
 
-                  <div className="flex items-center gap-1 h-8 px-2 rounded-lg border border-dashed border-[#E5E7EB]">
-                    <TagIcon className="w-3 h-3 text-[#656E77]" />
+                  <div className="flex items-center gap-1 h-8">
+                    <TagIcon className="w-3 h-3 text-[#8A9199]" />
                     <input
                       value={tagDraft}
                       onChange={(e) => setTagDraft(e.target.value)}
@@ -1112,7 +1120,7 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                       }}
                       list="cortex-tag-suggestions"
                       placeholder="タグを追加"
-                      className="w-24 bg-transparent text-[11px] font-bold outline-none placeholder:text-[#656E77]/60"
+                      className="w-24 bg-transparent text-[11px] font-bold outline-none placeholder:text-[#8A9199]"
                     />
                     <datalist id="cortex-tag-suggestions">
                       {allTags.map(({ tag }) => (
@@ -1124,206 +1132,136 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
               )}
 
               {(result as SavedWord).enrichStatus === "pending" && (
-                <div className="mb-6 p-4 rounded-2xl bg-[#F0F4FF] border border-[#2A5CFF]/15 flex items-center gap-3">
-                  <Loader2 className="w-4 h-4 text-[#2A5CFF] animate-spin" />
-                  <p className="text-xs font-bold text-[#2A5CFF]">
-                    この単語の詳細を生成中です。しばらくすると例文や語源が表示されます。
-                  </p>
-                </div>
+                <p className="mb-10 pl-4 border-l-2 border-[#2A5CFF] text-xs text-[#656E77] leading-relaxed">
+                  この単語の詳細を生成しています。しばらくすると例文や語源が表示されます。
+                </p>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1">
-                <Card className="md:col-span-2 border border-[#E5E7EB] shadow-none rounded-2xl overflow-hidden">
-                  <CardContent className="p-8">
-                    <div className="flex items-center gap-3 mb-4">
-                      <h3 className="text-[11px] font-bold text-[#656E77] uppercase tracking-widest">Meaning / 意味</h3>
-                      <div className="flex-1 h-[1px] bg-[#E5E7EB]" />
-                    </div>
-                    <p className="text-2xl font-bold text-[#1A1C1E] leading-snug">
-                      {result.meaning}
-                    </p>
-                  </CardContent>
-                </Card>
+              <div className="max-w-3xl">
+                <section className="section">
+                  <h3 className="section-label">意味</h3>
+                  <p className="text-2xl font-bold text-[#1A1C1E] leading-snug">
+                    {result.meaning}
+                  </p>
+                </section>
 
-                <Card className="md:col-span-2 border border-[#E9F0FF] bg-[#F0F4FF] shadow-none rounded-2xl overflow-hidden">
-                  <CardContent className="p-8">
-                    <div className="flex items-center gap-3 mb-4">
-                      <h3 className="text-[11px] font-bold text-[#2A5CFF] uppercase tracking-widest">Nuance / 使い分け</h3>
-                      <div className="flex-1 h-[1px] bg-[#2A5CFF]/20" />
-                    </div>
-                    <p className="text-lg font-medium text-[#1A1C1E] leading-relaxed">
-                      {result.nuance}
-                    </p>
-                  </CardContent>
-                </Card>
+                <section className="section">
+                  <h3 className="section-label">使い分け</h3>
+                  <p className="text-base text-[#1A1C1E] leading-loose">
+                    {result.nuance}
+                  </p>
+                </section>
 
-                <Card className="md:col-span-2 border border-[#F1F3F5] bg-white shadow-none rounded-2xl overflow-hidden">
-                  <CardContent className="p-8">
-                    <div className="flex items-center gap-3 mb-4">
-                      <h3 className="text-[11px] font-bold text-[#656E77] uppercase tracking-widest">Etymology / 語源</h3>
-                      <div className="flex-1 h-[1px] bg-[#E5E7EB]" />
-                    </div>
-                    <p className="text-base font-medium text-[#656E77] leading-relaxed italic mb-8">
-                      {result.etymology}
-                    </p>
-                    {result.etymologyNodes && (
-                      <EtymologyGraph mainWord={result.word} nodes={result.etymologyNodes} />
-                    )}
-                  </CardContent>
-                </Card>
+                <section className="section">
+                  <h3 className="section-label">語源</h3>
+                  <p className="text-base text-[#656E77] leading-loose mb-8">
+                    {result.etymology}
+                  </p>
+                  {result.etymologyNodes && (
+                    <EtymologyGraph mainWord={result.word} nodes={result.etymologyNodes} />
+                  )}
+                </section>
 
                 {result.specializedContexts && result.specializedContexts.length > 0 && (
-                  <Card className="md:col-span-2 border border-[#E5E7EB] shadow-none rounded-2xl overflow-hidden">
-                    <CardContent className="p-8">
-                      <div className="flex items-center gap-3 mb-6">
-                        <h3 className="text-[11px] font-bold text-[#656E77] uppercase tracking-widest">Multi-Field Perspectives / 専門文脈</h3>
-                        <div className="flex-1 h-[1px] bg-[#E5E7EB]" />
-                      </div>
-                      
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {result.specializedContexts.map((ctx, i) => {
-                          const field = ctx.field.toLowerCase();
-                          let icon = <BrainCircuit className="w-4 h-4" />;
-                          let color = "bg-gray-50 text-gray-700 border-gray-100";
-                          
-                          const fieldMatchers = [
-                            { keys: ["engineering", "tech", "mechanic", "physics"], icon: <Hammer className="w-4 h-4" />, color: "bg-blue-50 text-blue-700 border-blue-100" },
-                            { keys: ["finance", "business", "econ", "market"], icon: <Coins className="w-4 h-4" />, color: "bg-emerald-50 text-emerald-700 border-emerald-100" },
-                            { keys: ["motor", "car", "f1", "race", "auto"], icon: <Trophy className="w-4 h-4" />, color: "bg-orange-50 text-orange-700 border-orange-100" },
-                            { keys: ["med", "bio", "health", "anatomy", "pharm"], icon: <Activity className="w-4 h-4" />, color: "bg-red-50 text-red-700 border-red-100" },
-                            { keys: ["law", "legal", "politic", "court"], icon: <Gavel className="w-4 h-4" />, color: "bg-indigo-50 text-indigo-700 border-indigo-100" },
-                            { keys: ["psych", "mind", "brain", "behavio"], icon: <BrainCircuit className="w-4 h-4" />, color: "bg-purple-50 text-purple-700 border-purple-100" },
-                            { keys: ["art", "design", "music", "creat", "paint"], icon: <Plus className="w-4 h-4" />, color: "bg-pink-50 text-pink-700 border-pink-100" },
-                            { keys: ["code", "soft", "program", "alg"], icon: <Code className="w-4 h-4" />, color: "bg-slate-50 text-slate-700 border-slate-100" },
-                          ];
-
-                          const match = fieldMatchers.find(m => m.keys.some(k => field.includes(k)));
-                          if (match) {
-                            icon = match.icon;
-                            color = match.color;
-                          }
-
-                          return (
-                            <div key={i} className={`p-5 rounded-2xl border ${color} flex flex-col gap-4 transition-all hover:shadow-lg hover:shadow-gray-200/40 bg-white/50 backdrop-blur-sm`}>
-                              <div className="flex items-center gap-3">
-                                <div className="p-2 bg-white rounded-xl shadow-sm border border-inherit/20">
-                                  {icon}
-                                </div>
-                                <span className="text-[11px] font-black uppercase tracking-wider">{ctx.field}</span>
-                              </div>
-                              <p className="text-xs font-semibold leading-relaxed text-inherit opacity-90">
-                                {ctx.context}
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                <Card className="border border-[#E5E7EB] shadow-none rounded-2xl overflow-hidden">
-                  <CardContent className="p-8">
-                    <div className="flex items-center gap-3 mb-6">
-                      <h3 className="text-[11px] font-bold text-[#656E77] uppercase tracking-widest">Examples / 例文</h3>
-                      <div className="flex-1 h-[1px] bg-[#E5E7EB]" />
-                    </div>
-                    <div className="space-y-6">
-                      {normalizeExamples(result.examples).map((ex, i) => (
-                        <div key={i} className="pl-4 border-l-4 border-[#E5E7EB]">
-                          <div className="flex items-start gap-2 mb-1">
-                            <p className="text-[#1A1C1E] font-bold text-base flex-1">{ex.en}</p>
-                            {ttsAvailable && ex.en && (
-                              <button
-                                type="button"
-                                onClick={() => speak(ex.en, loadTtsSettings())}
-                                title="例文を読み上げる"
-                                className="w-7 h-7 shrink-0 rounded-full text-[#656E77] hover:text-[#2A5CFF] hover:bg-[#E9F0FF] flex items-center justify-center transition-colors"
-                              >
-                                <Volume2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                          <p className="text-[#656E77] text-sm">{ex.ja}</p>
+                  <section className="section">
+                    <h3 className="section-label">専門分野での意味</h3>
+                    <dl>
+                      {result.specializedContexts.map((ctx, i) => (
+                        <div
+                          key={i}
+                          className="py-5 border-t border-[#F1F3F5] first:border-t-0 first:pt-0 md:flex md:gap-8"
+                        >
+                          <dt className="text-xs font-bold text-[#1A1C1E] mb-1.5 md:mb-0 md:w-40 md:shrink-0">
+                            {ctx.field}
+                          </dt>
+                          <dd className="text-sm text-[#656E77] leading-loose">{ctx.context}</dd>
                         </div>
                       ))}
-                    </div>
-                  </CardContent>
-                </Card>
+                    </dl>
+                  </section>
+                )}
 
-                <Card className="border border-[#E5E7EB] shadow-none rounded-2xl overflow-hidden">
-                  <CardContent className="p-8 space-y-8">
-                    <div>
-                      <div className="flex items-center gap-3 mb-4">
-                        <h3 className="text-[11px] font-bold text-[#656E77] uppercase tracking-widest">Synonyms / 類義語</h3>
-                        <div className="flex-1 h-[1px] bg-[#E5E7EB]" />
+                <section className="section">
+                  <h3 className="section-label">例文</h3>
+                  <div className="space-y-7">
+                    {normalizeExamples(result.examples).map((ex, i) => (
+                      <div key={i}>
+                        <div className="flex items-start gap-2">
+                          <p className="text-[#1A1C1E] font-bold text-base leading-relaxed flex-1">
+                            {ex.en}
+                          </p>
+                          {ttsAvailable && ex.en && (
+                            <button
+                              type="button"
+                              onClick={() => speak(ex.en, loadTtsSettings())}
+                              title="例文を読み上げる"
+                              className="w-6 h-6 shrink-0 text-[#C9CDD2] hover:text-[#2A5CFF] flex items-center justify-center transition-colors"
+                            >
+                              <Volume2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[#8A9199] text-sm mt-1">{ex.ja}</p>
                       </div>
-                      <div className="flex flex-wrap gap-3">
-                        {result.synonyms.map((s, i) => (
-                          <div key={i} className="px-3 py-2 bg-[#F1F3F5] rounded-xl flex flex-col items-center">
-                            <span className="text-[#1A1C1E] text-sm font-bold">{s.word}</span>
-                            <span className="text-[10px] text-[#656E77]">{s.translation}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    ))}
+                  </div>
+                </section>
 
-                    <div>
-                      <div className="flex items-center gap-3 mb-4">
-                        <h3 className="text-[11px] font-bold text-[#656E77] uppercase tracking-widest">Antonyms / 対義語</h3>
-                        <div className="flex-1 h-[1px] bg-[#E5E7EB]" />
-                      </div>
-                      <div className="flex flex-wrap gap-3">
-                        {result.antonyms.map((a, i) => (
-                          <div key={i} className="px-3 py-2 bg-[#F1F3F5] rounded-xl flex flex-col items-center">
-                            <span className="text-[#1A1C1E] text-sm font-bold">{a.word}</span>
-                            <span className="text-[10px] text-[#656E77]">{a.translation}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                {result.synonyms.length > 0 && (
+                  <section className="section">
+                    <h3 className="section-label">類義語</h3>
+                    <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3">
+                      {result.synonyms.map((s, i) => (
+                        <div key={i}>
+                          <dt className="text-sm font-bold text-[#1A1C1E]">{s.word}</dt>
+                          <dd className="text-[11px] text-[#8A9199]">{s.translation}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                )}
+
+                {result.antonyms.length > 0 && (
+                  <section className="section">
+                    <h3 className="section-label">対義語</h3>
+                    <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3">
+                      {result.antonyms.map((a, i) => (
+                        <div key={i}>
+                          <dt className="text-sm font-bold text-[#1A1C1E]">{a.word}</dt>
+                          <dd className="text-[11px] text-[#8A9199]">{a.translation}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                )}
               </div>
             </motion.div>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-center p-6 max-w-2xl mx-auto">
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="w-20 md:w-24 h-20 md:h-24 bg-white rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/10 mb-8"
-              >
-                <div className="w-12 md:w-16 h-12 md:h-16 bg-blue-50 rounded-2xl flex items-center justify-center">
-                  <Search className="w-6 md:w-8 h-6 md:h-8 text-blue-600" />
-                </div>
-              </motion.div>
-              
-              <h2 className="text-3xl md:text-4xl font-black text-[#1A1C1E] mb-3 tracking-tight">Cortex Dictionary</h2>
-              
-              <p className="text-[#656E77] text-sm md:text-base mb-10 max-w-md">
-                調べたい英単語を入力してください。AIが専門分野や語源から知識の繋がりを生成します。
+            <div className="h-full flex flex-col justify-center max-w-xl mx-auto w-full">
+              <h2 className="text-3xl md:text-4xl font-black text-[#1A1C1E] mb-3 tracking-tight">
+                単語を調べる
+              </h2>
+
+              <p className="text-[#656E77] text-sm mb-10 leading-relaxed">
+                英単語を入力すると、意味、使い分け、語源、例文、専門分野での用法を表示します。
               </p>
 
-              <form onSubmit={handleSearch} className="w-full relative max-w-lg">
-                <div className="relative group">
+              <form onSubmit={handleSearch} className="w-full">
+                <div className="flex items-end gap-4 border-b-2 border-[#1A1C1E] pb-2">
                   <Input
-                    placeholder="単語を入力して知識を広げる..."
+                    placeholder="単語を入力"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-6 pr-16 h-16 md:h-20 rounded-2xl md:rounded-3xl border-2 border-[#E5E7EB] bg-white shadow-xl shadow-gray-200/50 focus:border-[#2A5CFF] focus:ring-0 transition-all text-lg md:text-xl font-bold"
+                    className="flex-1 h-12 px-0 bg-transparent border-0 rounded-none text-xl md:text-2xl font-bold focus:ring-0 focus:outline-none placeholder:text-[#C9CDD2]"
                   />
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                    <Button 
-                      type="submit"
-                      disabled={loading || !searchQuery.trim()}
-                      className="w-10 md:w-12 h-10 md:h-12 rounded-xl md:rounded-2xl bg-[#2A5CFF] hover:bg-blue-700 text-white shadow-lg shadow-blue-200 p-0"
-                    >
-                      {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ChevronRight className="w-6 h-6" />}
-                    </Button>
-                  </div>
+                  <button
+                    type="submit"
+                    disabled={loading || !searchQuery.trim()}
+                    className="h-12 w-10 shrink-0 flex items-center justify-center text-[#1A1C1E] disabled:opacity-25"
+                  >
+                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ChevronRight className="w-6 h-6" />}
+                  </button>
                 </div>
-                
-                <div className="mt-8 h-4" />
               </form>
             </div>
           )}

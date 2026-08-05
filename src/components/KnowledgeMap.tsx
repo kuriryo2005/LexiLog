@@ -1,333 +1,335 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import { SavedWord, DictionaryMode } from "../types";
-import { Card } from "./ui/card";
+import { SavedWord } from "../types";
 import { motion, AnimatePresence } from "motion/react";
-import { 
-  Sparkles, 
-  Layers, 
-  Wind, 
-  Target, 
-  Type, 
-  History, 
-  BookOpen,
-  Maximize2,
-  ChevronRight
-} from "lucide-react";
+import { X, Search, Loader2 } from "lucide-react";
 import { getEtymologyStory } from "../services/geminiService";
+import { buildGraph, GraphLayer, MapNode } from "../lib/graph";
 
 interface Props {
   words: SavedWord[];
   onWordClick?: (word: SavedWord) => void;
+  /** 未保存の関連語を押したとき。検索に回す */
+  onSearchWord?: (word: string) => void;
+  /** 生成した語源の解説を保存する。呼び出し側が Firestore に書き戻す */
+  onStoryGenerated?: (wordId: string, story: string) => Promise<void> | void;
 }
 
-type LayerType = "etymology" | "collocation" | "synonym";
+// ---- 色。アプリのデザイントークンに合わせる -------------------------
+// primary  #2A5CFF = rgba(42,  92, 255, ...)  保存済み語ノード・類義線
+// ink      #1A1C1E = rgba(26,  28,  30, ...)  語根輪郭・ラベル
+// muted    #8A9199 = rgba(138,145, 153, ...)  ghost・対義線
+// border   #EAECEF = rgba(234,236, 239, ...)  ghost 塗り
+const APP = {
+  primary: "42, 92, 255",   // #2A5CFF
+  ink:     "26, 28, 30",    // #1A1C1E
+  muted:   "138, 145, 153", // #8A9199
+  border:  "234, 236, 239", // #EAECEF
+} as const;
 
-export const KnowledgeMap: React.FC<Props> = ({ words, onWordClick }) => {
-  const [layer, setLayer] = useState<LayerType>("etymology");
-  const [hoverNode, setHoverNode] = useState<any>(null);
-  const [selectedStory, setSelectedStory] = useState<{ word: string; story: string } | null>(null);
-  const [isGeneratingStory, setIsGeneratingStory] = useState(false);
+const LINK_COLORS: Record<string, string> = {
+  root:    `rgba(${APP.ink}, 0.2)`,
+  direct:  `rgba(${APP.ink}, 0.15)`,
+  synonym: `rgba(${APP.primary}, 0.45)`,
+  antonym: `rgba(${APP.muted}, 0.55)`,
+};
 
-  // Compute graph data
-  const graphData = useMemo(() => {
-    const nodes: any[] = [];
-    const links: any[] = [];
-    const nodeMap = new Map<string, any>();
+const LAYER_TABS: { key: GraphLayer; label: string }[] = [
+  { key: "etymology", label: "語源" },
+  { key: "synonym",  label: "類義語" },
+  { key: "antonym",  label: "対義語" },
+];
 
-    // 1. Add learned words as primary nodes
-    words.forEach(word => {
-      if (!word.word) return;
-      const timeSinceReview = word.nextReviewAt ? Math.max(0, Date.now() - word.nextReviewAt) : 0;
-      const daysOverdue = timeSinceReview / (1000 * 60 * 60 * 24);
-      
-      // Node Weathering: Opacity decreases with overdue time
-      const opacity = Math.max(0.3, 1 - (daysOverdue / 14));
-      
-      const isDue = word.nextReviewAt ? word.nextReviewAt <= Date.now() : true;
-      
-      const node = {
-        id: word.id,
-        word: word.word,
-        meaning: word.meaning,
-        category: word.category,
-        importance: word.importanceScore || 0.5,
-        isLearned: true,
-        opacity,
-        isOverdue: daysOverdue > 0,
-        isDue,
-        data: word
-      };
-      nodes.push(node);
-      nodeMap.set(word.word.toLowerCase(), node);
-    });
+const LAYER_DESC: Record<GraphLayer, (rootCount: number) => string> = {
+  etymology: (n) => `同じ語根の単語が一つの房に集まります。語根 ${n} 種類`,
+  synonym:   () => "意味が近い単語どうしを結びます。灰色は未保存の類義語",
+  antonym:   () => "意味が反転する単語どうしを結びます。灰色は未保存の対義語",
+};
 
-    // 2. Build linkages and Etymology Bridges (Silhouettes)
-    words.forEach(word => {
-      if (layer === "etymology") {
-        (word.etymologyNodes || []).forEach(ref => {
-          if (!ref.word) return;
-          const targetLower = ref.word.toLowerCase();
-          let targetNode = nodeMap.get(targetLower);
+export const KnowledgeMap: React.FC<Props> = ({
+  words,
+  onWordClick,
+  onSearchWord,
+  onStoryGenerated,
+}) => {
+  const [layer, setLayer]           = useState<GraphLayer>("etymology");
+  const [selected, setSelected]     = useState<MapNode | null>(null);
+  const [story, setStory]           = useState<string>("");
+  const [isGenerating, setIsGen]    = useState(false);
+  /**
+   * 復習の遅れを地図に重ねるかどうか。
+   *
+   * 改善 6: 意味のつながりと復習の進捗は別の軸なので、デフォルトはオフにする。
+   * オンにしたときだけノードが薄くなり、期限超過は破線の輪郭になる。
+   */
+  const [showOverdue, setShowOverdue] = useState(false);
 
-          // If target word is not learned yet, add it as a silhouette
-          if (!targetNode) {
-            targetNode = {
-              id: `ghost-${targetLower}`,
-              word: ref.word,
-              meaning: ref.meaning,
-              category: word.category,
-              importance: ref.importance || 0.3,
-              isLearned: false,
-              opacity: 0.2, // Ghostly appearance
-              isOverdue: false
-            };
-            nodes.push(targetNode);
-            nodeMap.set(targetLower, targetNode);
-          }
+  const graphData = useMemo(() => buildGraph(words, layer), [words, layer]);
 
-          links.push({
-            source: word.id,
-            target: targetNode.id,
-            value: (ref.importance || 0.5) * 5, // Engineering: Link thickness
-            label: ref.root,
-            isGhost: !targetNode.isLearned
-          });
-        });
-      } else if (layer === "synonym") {
-        (word.synonyms || []).forEach(syn => {
-          if (!syn.word) return;
-          const targetLower = syn.word.toLowerCase();
-          const targetNode = nodeMap.get(targetLower);
-          if (targetNode) {
-            links.push({
-              source: word.id,
-              target: targetNode.id,
-              value: 2,
-              label: "synonym"
-            });
-          }
-        });
-      } else if (layer === "collocation") {
-        (word.collocations || []).forEach(col => {
-           // We could find other words sharing similar collocations/contexts
-           // For now, simplify collocation layer by clustering similar categoried words stronger
-        });
-      }
-    });
+  const rootCount = useMemo(
+    () => graphData.nodes.filter((n) => n.kind === "root").length,
+    [graphData]
+  );
 
-    return { nodes, links };
-  }, [words, layer]);
+  const closePanel = useCallback(() => {
+    setSelected(null);
+    setStory("");
+  }, []);
 
-  const handleNodeClick = async (node: any) => {
-    if (!node.isLearned) return; // Ignore ghost nodes or prompt to search?
+  const handleNodeClick = useCallback((node: any) => {
+    const n = node as MapNode;
+    setSelected(n);
+    setStory(n.kind === "word" ? n.data?.etymologyStory ?? "" : "");
+  }, []);
 
-    const word: SavedWord = node.data;
-    setIsGeneratingStory(true);
+  /**
+   * 語源の解説を生成する。
+   *
+   * 以前はノードを押すたびに毎回 API を呼んでいた。結果を Firestore に書き戻して
+   * 使い回す（etymologyStory フィールド）。2回目以降は即座に表示される。
+   */
+  const generateStory = useCallback(async () => {
+    const word = selected?.data;
+    if (!word || isGenerating) return;
+    setIsGen(true);
     try {
-      const story = await getEtymologyStory(word.word, word.meaning, word.etymology);
-      setSelectedStory({ word: word.word, story });
+      const text = await getEtymologyStory(word.word, word.meaning, word.etymology);
+      setStory(text);
+      await onStoryGenerated?.(word.id, text);
     } catch (e) {
       console.error(e);
     } finally {
-      setIsGeneratingStory(false);
+      setIsGen(false);
     }
-    
-    if (onWordClick) onWordClick(word);
-  };
+  }, [selected, isGenerating, onStoryGenerated]);
 
   if (words.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-center p-12 bg-white/40 rounded-3xl border border-dashed border-gray-200">
-        <Target className="w-12 h-12 text-blue-300 mb-4" />
-        <h3 className="text-xl font-black text-[#1A1C1E] mb-2">未完成のナレッジパズル</h3>
-        <p className="text-sm text-[#656E77] max-w-sm">
-          単語を検索して保存すると、工学的な重み付けと語源の繋がりを持つマップが生成されます。
+      <div className="h-full flex flex-col justify-center max-w-xl mx-auto w-full">
+        <h3 className="text-2xl font-black text-[#1A1C1E] mb-3">表示できる単語がありません</h3>
+        <p className="text-sm text-[#656E77] leading-relaxed">
+          単語を保存すると、語源や類義語のつながりを図として表示します。
         </p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full gap-6">
-      {/* Header & Layer Selection */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="flex flex-col h-full">
+      {/* ヘッダー */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
         <div>
-           <h2 className="text-2xl font-black text-[#1A1C1E] flex items-center gap-2">
-             <Layers className="w-6 h-6 text-blue-600" />
-             Cortex Semantic Gravity
-           </h2>
-           <p className="text-sm font-medium text-gray-500">
-             専門分野の「重力」と「風化」をシミュレートしたナレッジマップ
-           </p>
+          <h2 className="text-2xl font-black text-[#1A1C1E]">単語のつながり</h2>
+          <p className="text-sm text-[#8A9199] mt-1">
+            {LAYER_DESC[layer](rootCount)}
+          </p>
         </div>
 
-        <div className="flex p-1 bg-gray-100 rounded-2xl border border-gray-200">
-           {(["etymology", "synonym"] as const).map(l => (
-             <button
-               key={l}
-               onClick={() => setLayer(l)}
-               className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                 layer === l 
-                   ? "bg-white text-blue-600 shadow-sm border border-gray-200" 
-                   : "text-gray-400 hover:text-gray-600"
-               }`}
-             >
-               {l.toUpperCase()}
-             </button>
-           ))}
+        <div className="flex items-center gap-6">
+          {/* 復習の遅れオーバーレイ */}
+          <button
+            onClick={() => setShowOverdue((v) => !v)}
+            className={`text-xs font-bold pb-1 border-b-2 transition-colors ${
+              showOverdue
+                ? "text-[#1A1C1E] border-[#1A1C1E]"
+                : "text-[#8A9199] border-transparent hover:text-[#1A1C1E]"
+            }`}
+          >
+            復習の遅れ
+          </button>
+
+          <div className="w-px h-4 bg-[#EAECEF]" />
+
+          {/* レイヤータブ */}
+          {LAYER_TABS.map((l) => (
+            <button
+              key={l.key}
+              onClick={() => { setLayer(l.key); closePanel(); }}
+              className={`text-xs font-bold pb-1 border-b-2 transition-colors ${
+                layer === l.key
+                  ? "text-[#1A1C1E] border-[#1A1C1E]"
+                  : "text-[#8A9199] border-transparent hover:text-[#1A1C1E]"
+              }`}
+            >
+              {l.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="relative flex-1 min-h-[600px] rounded-[40px] overflow-hidden border border-gray-200 bg-white/50 backdrop-blur-sm shadow-xl">
+      <div className="relative flex-1 min-h-[600px] overflow-hidden border-t border-b border-[#EAECEF]">
         <ForceGraph2D
-          graphData={graphData}
-          nodeLabel={(node: any) => `${node.word}: ${node.meaning}`}
-          nodeAutoColorBy="category"
+          graphData={graphData as any}
+          nodeLabel={(node: any) =>
+            node.kind === "root" ? `語根 ${node.label}` : `${node.label}: ${node.meaning}`
+          }
           onNodeClick={handleNodeClick}
-          onNodeHover={setHoverNode}
-          linkColor={(link: any) => link.isGhost ? "#E5E7EB" : "#3B82F6"}
-          linkWidth={(link: any) => link.value}
-          linkDirectionalParticles={2}
-          linkDirectionalParticleSpeed={0.005}
+          linkColor={(link: any) => LINK_COLORS[link.kind] ?? "rgba(107,114,128,0.4)"}
+          linkWidth={(link: any) => (link.kind === "root" ? 1.2 : 1)}
           nodeCanvasObject={(node: any, ctx, globalScale) => {
-            const label = node.word;
-            // Semantic Gravity: Size depends on importance
-            const radius = 5 + (node.importance * 15); 
+            const n = node as MapNode & { x: number; y: number };
+            const radius = 4 + n.importance * 12;
             const fontSize = 12 / globalScale;
-            
-            // Draw Circle
+
             ctx.beginPath();
-            ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-            
-            if (node.isLearned) {
-               // Node Weathering: Adjust alpha
-               ctx.fillStyle = `rgba(59, 130, 246, ${node.opacity})`;
-               ctx.strokeStyle = node.isOverdue ? "rgba(239, 68, 68, 0.8)" : "rgba(37, 99, 235, 0.5)";
-               if (node.isOverdue) {
-                 // Drawing "cracks" if overdue (simplified)
-                 ctx.setLineDash([2, 2]);
-               }
+            ctx.arc(n.x, n.y, radius, 0, 2 * Math.PI, false);
+
+            if (n.kind === "word") {
+              const opacity = showOverdue ? Math.max(0.3, 1 - n.daysOverdue / 14) : 1;
+              ctx.fillStyle = `rgba(${APP.primary}, ${opacity})`;
+              if (showOverdue && n.daysOverdue > 0) {
+                ctx.strokeStyle = "rgba(220, 38, 38, 0.8)";
+                ctx.setLineDash([2, 2]);
+              } else {
+                ctx.strokeStyle = `rgba(${APP.primary}, 0.4)`;
+              }
+            } else if (n.kind === "root") {
+              ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+              ctx.strokeStyle = `rgba(${APP.ink}, 0.65)`;
             } else {
-               // Ghost Silhouette
-               ctx.fillStyle = "rgba(229, 231, 235, 0.3)";
-               ctx.strokeStyle = "rgba(209, 213, 219, 0.5)";
-               ctx.setLineDash([5, 5]);
+              // ghost
+              ctx.fillStyle = `rgba(${APP.border}, 0.5)`;
+              ctx.strokeStyle = `rgba(${APP.muted}, 0.55)`;
+              ctx.setLineDash([4, 4]);
             }
-            
-            // Target Glow for important words or Daily Targets
-            if (node.isLearned && (node.importance > 0.8 || node.isDue)) {
-               ctx.shadowBlur = node.isDue ? 15 : 10;
-               ctx.shadowColor = node.isDue ? "#10B981" : "#3B82F6"; // Emerald for Daily Target
-            }
-            
-            ctx.lineWidth = 1 / globalScale;
+
+            ctx.lineWidth = (n.kind === "root" ? 1.5 : 1) / globalScale;
             ctx.fill();
             ctx.stroke();
-            ctx.setLineDash([]); // Reset dash
-            ctx.shadowBlur = 0; // Reset shadow for text
+            ctx.setLineDash([]);
 
-            // Draw Text
-            ctx.font = `${fontSize}px Inter, sans-serif`;
+            // ラベル: Inter ではなくアプリ既定の sans-serif を使う
+            const sans = "'Helvetica Neue', Arial, sans-serif";
+            ctx.font = `${n.kind === "root" ? "italic " : ""}${fontSize}px ${sans}`;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-            ctx.fillStyle = node.isLearned ? "#1F2937" : "#9CA3AF";
-            ctx.fillText(label, node.x, node.y + radius + fontSize + 2);
+            ctx.fillStyle =
+              n.kind === "ghost" ? `rgba(${APP.muted}, 1)` : `rgba(${APP.ink}, 1)`;
+            ctx.fillText(n.label, n.x, n.y + radius + fontSize + 2);
           }}
         />
 
-        {/* Legend Overlay */}
-        <div className="absolute top-6 left-6 flex flex-col gap-3 pointer-events-none">
-           <div className="p-4 bg-white/80 backdrop-blur-md rounded-2xl border border-gray-100 shadow-lg max-w-[200px]">
-              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Map Legend</h4>
-              <div className="space-y-3">
-                 <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-blue-500" />
-                    <span className="text-[11px] font-bold text-gray-700">Learned Node</span>
-                 </div>
-                 <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-gray-200 border border-dashed border-gray-300" />
-                    <span className="text-[11px] font-bold text-gray-400">Undiscovered (Bridge)</span>
-                 </div>
-                 <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full border-2 border-red-400 border-dashed" />
-                    <span className="text-[11px] font-bold text-gray-600">Weathering (Need Review)</span>
-                 </div>
-              </div>
-           </div>
+        {/* 凡例 */}
+        <div className="absolute top-5 left-5 flex flex-col gap-2.5 pointer-events-none">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#2A5CFF]" />
+            <span className="text-[11px] font-bold text-[#656E77]">保存済み</span>
+          </div>
+          {layer === "etymology" && (
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full border border-[#1A1C1E]" />
+              <span className="text-[11px] font-bold text-[#656E77]">語根</span>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full border border-dashed border-[#8A9199]" />
+            <span className="text-[11px] font-bold text-[#8A9199]">未保存の関連語</span>
+          </div>
+          {showOverdue && (
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full border-2 border-dashed border-red-600" />
+              <span className="text-[11px] font-bold text-[#656E77]">復習の期限超過</span>
+            </div>
+          )}
         </div>
 
-        {/* Story Modal */}
+        {/* 選んだノードのパネル */}
         <AnimatePresence>
-          {selectedStory && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 z-50 flex items-center justify-center p-8 bg-black/20 backdrop-blur-sm"
-              onClick={() => setSelectedStory(null)}
+          {selected && (
+            <motion.div
+              key={selected.id}
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 16 }}
+              transition={{ duration: 0.18 }}
+              className="absolute top-0 right-0 h-full w-full max-w-sm bg-white border-l border-[#EAECEF] px-8 py-7 overflow-y-auto"
             >
-              <motion.div 
-                initial={{ scale: 0.9, y: 20 }}
-                animate={{ scale: 1, y: 0 }}
-                className="bg-white p-8 rounded-[40px] shadow-2xl max-w-lg w-full relative"
-                onClick={e => e.stopPropagation()}
+              <button
+                onClick={closePanel}
+                className="absolute top-6 right-6 text-[#8A9199] hover:text-[#1A1C1E]"
+                aria-label="閉じる"
               >
-                <button 
-                  onClick={() => setSelectedStory(null)}
-                  className="absolute top-6 right-6 p-2 hover:bg-gray-100 rounded-full transition-colors"
-                >
-                  <ChevronRight className="w-6 h-6 text-gray-400" />
-                </button>
-                <div className="flex items-center gap-3 mb-6">
-                   <div className="p-2 bg-blue-100 rounded-xl">
-                      <Sparkles className="w-5 h-5 text-blue-600" />
-                   </div>
-                   <h3 className="text-xl font-black text-[#1A1C1E]">語源のショートストーリー: {selectedStory.word}</h3>
-                </div>
-                <div className="prose prose-sm text-gray-700 leading-relaxed font-medium">
-                   {selectedStory.story}
-                </div>
-                <div className="mt-8 pt-6 border-t border-gray-100 flex justify-end">
-                   <button 
-                     onClick={() => setSelectedStory(null)}
-                     className="px-6 py-2 bg-[#1A1C1E] text-white rounded-xl text-xs font-black"
-                   >
-                     CLOSE
-                   </button>
-                </div>
-              </motion.div>
+                <X className="w-4 h-4" />
+              </button>
+
+              {selected.kind === "root" ? (
+                <>
+                  <p className="section-label mb-2">語根</p>
+                  <h3 className="text-2xl font-black text-[#1A1C1E] italic mb-4">{selected.label}</h3>
+                  <p className="text-sm text-[#656E77] leading-loose">
+                    {selected.meaning || "この語根を共有する単語がまとまっています。"}
+                  </p>
+                  <p className="text-xs font-bold text-[#8A9199] mt-6">保存済み {selected.degree} 語</p>
+                </>
+              ) : selected.kind === "ghost" ? (
+                <>
+                  <p className="section-label mb-2">未保存の関連語</p>
+                  <h3 className="text-2xl font-black text-[#1A1C1E] mb-4">{selected.label}</h3>
+                  {selected.meaning && (
+                    <p className="text-sm text-[#656E77] leading-loose">{selected.meaning}</p>
+                  )}
+                  <p className="text-xs font-bold text-[#8A9199] mt-6">
+                    つながる保存済みの語 {selected.degree} 語
+                  </p>
+                  <div className="mt-8 pt-6 border-t border-[#EAECEF]">
+                    <button
+                      onClick={() => { onSearchWord?.(selected.label); closePanel(); }}
+                      className="btn-quiet px-0 text-sm"
+                    >
+                      <Search className="w-4 h-4" />
+                      この単語を調べる
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="section-label mb-2">{selected.data?.grammar || "保存済み"}</p>
+                  <h3 className="text-2xl font-black text-[#1A1C1E] mb-1">{selected.label}</h3>
+                  <p className="text-sm text-[#1A1C1E] leading-relaxed mb-6">{selected.meaning}</p>
+
+                  {selected.data?.etymology && (
+                    <div className="mb-6">
+                      <p className="section-label mb-2">語源</p>
+                      <p className="text-sm text-[#656E77] leading-loose">{selected.data.etymology}</p>
+                    </div>
+                  )}
+
+                  {selected.data?.nuance && (
+                    <div className="mb-6">
+                      <p className="section-label mb-2">ニュアンス</p>
+                      <p className="text-sm text-[#656E77] leading-loose">{selected.data.nuance}</p>
+                    </div>
+                  )}
+
+                  {story ? (
+                    <div className="mb-6">
+                      <p className="section-label mb-2">語源の解説</p>
+                      <p className="text-sm text-[#656E77] leading-loose">{story}</p>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={generateStory}
+                      disabled={isGenerating}
+                      className="btn-quiet px-0 text-sm mb-6"
+                    >
+                      {isGenerating && <Loader2 className="w-4 h-4 animate-spin" />}
+                      {isGenerating ? "生成しています" : "語源の解説を生成"}
+                    </button>
+                  )}
+
+                  <div className="pt-6 border-t border-[#EAECEF]">
+                    <button
+                      onClick={() => selected.data && onWordClick?.(selected.data)}
+                      className="btn-quiet px-0 text-sm"
+                    >
+                      詳細を開く
+                    </button>
+                  </div>
+                </>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
-
-        {isGeneratingStory && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/40 backdrop-blur-[2px]">
-             <div className="flex flex-col items-center gap-4">
-                <motion.div 
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                  className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full"
-                />
-                <span className="text-xs font-black text-blue-600 uppercase tracking-widest">Generating Story...</span>
-             </div>
-          </div>
-        )}
-      </div>
-
-      <div className="flex items-center justify-between px-6 py-4 bg-blue-50/50 rounded-2xl border border-blue-100">
-         <div className="flex items-center gap-3">
-            <BookOpen className="w-4 h-4 text-blue-600" />
-            <span className="text-[11px] font-bold text-blue-800">
-               工学的ヒューリスティクス：重要度が高い単語ほど中央に配置され、強い重力を持ちます。
-            </span>
-         </div>
-         <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5">
-               <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-               <span className="text-[10px] font-black text-blue-600 uppercase">Live Simulation</span>
-            </div>
-         </div>
       </div>
     </div>
   );

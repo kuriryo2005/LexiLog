@@ -80,6 +80,676 @@
   }
 }
 
+/*
+ * 区切りは枠線ではなく余白と一本の罫線で表す。
+ * カード状の囲みを使わないため、情報のまとまりは
+ * 「見出し + 罫線 + 十分な下余白」で示す。
+ */
+@layer components {
+  /* 情報のまとまり。上に罫線を引き、下に余白を取る */
+  .section {
+    @apply border-t border-[#EAECEF] pt-6 pb-14;
+  }
+
+  /* まとまりの見出し。小さく、控えめに */
+  .section-label {
+    @apply text-[11px] font-bold text-[#8A9199] uppercase tracking-[0.12em] mb-5;
+  }
+
+  /*
+   * 下線だけの入力欄。
+   * shadcn の Input が持つ rounded-lg / border / px-2.5 はユーティリティなので
+   * そのままではコンポーネント層のこの定義より強い。! を付けて明示的に勝たせる。
+   */
+  .field {
+    @apply w-full bg-transparent rounded-none! border-0! border-b! border-[#E5E7EB]! px-0!
+           focus:border-[#1A1C1E]! focus-visible:ring-0! outline-none transition-colors;
+  }
+
+  /* 単色の主要ボタン。角丸は使わない */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 bg-[#1A1C1E] text-white
+           font-bold rounded-none px-5 h-11 transition-colors hover:bg-[#2A5CFF]
+           disabled:opacity-30 disabled:hover:bg-[#1A1C1E];
+  }
+
+  /* 罫線一本だけの副ボタン */
+  .btn-quiet {
+    @apply inline-flex items-center justify-center gap-2 bg-transparent text-[#1A1C1E]
+           font-bold rounded-none px-5 h-11 border-b border-[#1A1C1E] transition-colors
+           hover:text-[#2A5CFF] hover:border-[#2A5CFF] disabled:opacity-30;
+  }
+}
+
+/* ===========================================================
+   単語帳（紙面の再現）
+
+   見開き全体をひとつのグリッドにして、左右のページで同じ単語の行が
+   必ず揃うようにしている。列は
+     1 見出し語 / 2 語義・フレーズ / 3 折り / 4 英文 / 5 和訳
+   =========================================================== */
+:root {
+  /* 型・記号・和訳の対応部分に使う明るい青 */
+  --wb-blue: #00a0e9;
+  /* 覚える対象（赤シートで隠す範囲）のマゼンタ */
+  --wb-magenta: #e4007f;
+  --wb-bar: #a8ddf2;
+  --wb-line: #a8d8ec;
+  --wb-check: #7ecbea;
+  --wb-ink: #1a1c1e;
+  --wb-gray: #6b7280;
+  /* 見出し語と英文はセリフ体。紙面の印象がここで決まる */
+  --wb-serif: "Times New Roman", Times, Georgia, "Hiragino Mincho ProN", serif;
+}
+
+.wb-root {
+  max-width: 1180px;
+}
+
+/* スクロールしても赤シートと印刷に手が届くように上へ貼り付ける */
+.wb-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+  padding: 14px 0 12px;
+  background: #fff;
+  border-bottom: 1px solid #eaecef;
+}
+
+.wb-spread {
+  display: grid;
+  grid-template-columns: 1.05fr 1.6fr 16px 1.4fr 1.2fr;
+  position: relative;
+  background: #fff;
+  border: 1px solid var(--wb-line);
+  padding-right: 26px; /* 小口のツメの幅 */
+  margin-bottom: 40px;
+  color: var(--wb-ink);
+}
+
+/* --- 見出し帯と目盛り --- */
+.wb-head-left {
+  grid-column: 1 / 3;
+  background: var(--wb-bar);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 12px;
+}
+
+.wb-head-right {
+  grid-column: 4 / 6;
+  display: flex;
+  align-items: flex-end;
+  padding: 7px 12px 4px;
+}
+
+.wb-unit-no {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.wb-unit-sub {
+  font-size: 10px;
+  font-weight: 700;
+  color: #14556f;
+}
+
+/* 復習スケジュール（紙面に印刷されるチェック枠） */
+.wb-days {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.wb-day {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wb-day-box {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  background: #fff;
+  border: 1px solid var(--wb-blue);
+  color: var(--wb-blue);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wb-day.is-done .wb-day-box {
+  background: var(--wb-blue);
+  color: #fff;
+}
+
+.wb-day-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: left;
+}
+
+.wb-day-text em {
+  font-style: normal;
+  font-weight: 600;
+  font-size: 8px;
+  color: #14556f;
+}
+
+.wb-ruler {
+  width: 100%;
+}
+
+.wb-ruler-track {
+  position: relative;
+  height: 15px;
+  border-bottom: 1px solid var(--wb-blue);
+}
+
+.wb-ruler-span {
+  position: absolute;
+  bottom: 0;
+  height: 5px;
+  background: var(--wb-magenta);
+}
+
+.wb-ruler-tick {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+}
+
+.wb-ruler-tick i {
+  display: block;
+  width: 1px;
+  height: 5px;
+  background: var(--wb-blue);
+  margin: 0 auto;
+}
+
+.wb-ruler-tick em {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-style: normal;
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--wb-blue);
+}
+
+/* --- 本文 --- */
+/* 語と語の区切りは細い破線。紙面と同じ */
+.wb-c-word,
+.wb-c-sense,
+.wb-c-en,
+.wb-c-ja {
+  border-top: 1px dashed var(--wb-line);
+  padding: 13px 14px;
+}
+
+.wb-c-sense,
+.wb-c-ja {
+  border-left: 1px solid var(--wb-line);
+}
+
+/* 折り（ノド）。左右のページの境目 */
+.wb-head-gutter,
+.wb-c-gutter {
+  background: linear-gradient(
+    to right,
+    #eef6fa 0%,
+    #dceaf1 45%,
+    #c9dde6 50%,
+    #dceaf1 55%,
+    #eef6fa 100%
+  );
+}
+
+.wb-c-gutter {
+  border-top: 1px dashed var(--wb-line);
+}
+
+/* --- 見出し語 --- */
+.wb-word {
+  display: block;
+  font-family: var(--wb-serif);
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-align: left;
+  line-height: 1.15;
+}
+
+.wb-word:hover {
+  color: var(--wb-blue);
+}
+
+.wb-phonetic {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--wb-serif);
+  font-size: 12px;
+  color: var(--wb-ink);
+}
+
+/* チェック枠と通し番号 */
+.wb-word-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.wb-checks {
+  display: flex;
+  gap: 3px;
+}
+
+.wb-check {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  background: #fff;
+  border: 1px solid var(--wb-check);
+  color: var(--wb-blue);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wb-check.is-done {
+  background: var(--wb-blue);
+  border-color: var(--wb-blue);
+  color: #fff;
+}
+
+.wb-serial {
+  font-family: var(--wb-serif);
+  font-size: 12px;
+  color: var(--wb-blue);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- 語義 --- */
+.wb-sense-line {
+  display: flex;
+  align-items: flex-start;
+}
+
+/* 品詞は塗りつぶさず、細い枠で囲った字にする */
+.wb-pos {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin: 2px 7px 0 0;
+  border: 1px solid var(--wb-ink);
+  border-radius: 3px;
+  color: var(--wb-ink);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wb-senses {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* 語義①。赤シートで隠す想定の範囲だけを色付きの太字にする */
+.wb-core {
+  color: var(--wb-magenta);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.wb-lead,
+.wb-sense-rest {
+  color: var(--wb-ink);
+  font-weight: 500;
+}
+
+.wb-pos-inline {
+  font-weight: 700;
+  margin-right: 1px;
+}
+
+/* 「を変える」の「を」。本体より小さくして内容語を拾いやすくする */
+.wb-particle {
+  font-size: 0.72em;
+}
+
+/* --- ターゲットフレーズ --- */
+.wb-tg-line {
+  position: relative;
+  margin-top: 7px;
+  padding-left: 20px;
+  line-height: 1.55;
+}
+
+.wb-tg {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--wb-ink);
+  color: #fff;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* TG の型は青の太字。差し替え位置だけ斜体 */
+.wb-frame {
+  color: var(--wb-blue);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.wb-frame i {
+  font-style: italic;
+}
+
+/* 追加のフレーズと派生語の英語は黒のセリフ体 */
+.wb-frame-sub {
+  font-family: var(--wb-serif);
+  font-size: 13px;
+  color: var(--wb-ink);
+}
+
+.wb-frame-sub i {
+  font-style: italic;
+}
+
+.wb-gloss {
+  font-size: 12px;
+  color: var(--wb-ink);
+  margin-left: 1px;
+}
+
+.wb-phrase {
+  margin-top: 4px;
+  padding-left: 14px;
+  text-indent: -14px;
+  line-height: 1.6;
+}
+
+.wb-arrow {
+  display: inline-block;
+  position: relative;
+  top: -1.5px; /* ▶ の字面がベースライン寄りなので、本文の中心に合わせて上げる */
+  width: 14px;
+  color: var(--wb-blue);
+  font-size: 9px;
+  font-style: normal;
+  text-indent: 0;
+}
+
+/* --- 派生語 --- */
+.wb-derivative {
+  position: relative;
+  margin-top: 4px;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+/* 派生語の品詞は灰色の塗り */
+.wb-pos-mini {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  background: #b6bcc2;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wb-note {
+  margin-top: 5px;
+  font-size: 10.5px;
+  line-height: 1.65;
+  color: var(--wb-gray);
+}
+
+.wb-c-en p {
+  font-family: var(--wb-serif);
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+
+.wb-c-ja p {
+  font-size: 11.5px;
+  line-height: 1.85;
+}
+
+.wb-hit-red {
+  color: var(--wb-magenta);
+  font-weight: 700;
+}
+
+.wb-hit-blue {
+  color: var(--wb-blue);
+  font-weight: 900;
+}
+
+/* 例文がまだ無い語は、書き込めるよう罫線だけ置く */
+.wb-blank {
+  display: block;
+  height: 1.1em;
+  margin-top: 0.5em;
+  border-bottom: 1px dashed var(--wb-line);
+}
+
+/* --- 書き込み欄と柱 --- */
+.wb-memo {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--wb-line);
+  height: 58px;
+  padding: 5px 12px;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent,
+    transparent 18px,
+    #eef4f7 18px,
+    #eef4f7 19px
+  );
+}
+
+.wb-memo span {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--wb-gray);
+}
+
+.wb-foot {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--wb-line);
+  padding: 6px 12px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 900;
+  color: var(--wb-blue);
+}
+
+.wb-foot em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--wb-gray);
+  margin-left: 10px;
+}
+
+.wb-tab {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 26px;
+  height: 122px;
+  background: var(--wb-blue);
+  color: #fff;
+  writing-mode: vertical-rl;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+/* --- 赤シート ---
+   実物の赤シートで消える文字（語義・訳）を画面上で再現する。
+   隠すのは意味にあたる日本語だけで、英語と型は残す。 */
+.wb-sheet-on .wb-hide {
+  color: transparent !important;
+  background: #fde4f0;
+  border-radius: 1px;
+  cursor: pointer;
+}
+
+.wb-sheet-on .wb-hide .wb-hit-blue,
+.wb-sheet-on .wb-hide .wb-hit-red {
+  color: transparent !important;
+}
+
+/* クリックした箇所だけ開く。もう一度押すと戻る */
+.wb-sheet-on .wb-hide.is-shown {
+  color: inherit !important;
+  background: #fff3f9;
+}
+
+.wb-sheet-on .wb-hide.is-shown .wb-hit-blue {
+  color: var(--wb-blue) !important;
+}
+
+.wb-sheet-on .wb-hide.is-shown .wb-hit-red {
+  color: var(--wb-magenta) !important;
+}
+
+/* --- 到達マップ --- */
+.wb-map {
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #eaecef;
+}
+
+.wb-map-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.wb-map-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #8a9199;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.wb-map-stat {
+  font-size: 11px;
+  color: #8a9199;
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 4px;
+}
+
+.wb-map-cell {
+  height: 26px;
+  background: var(--wb-blue);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  transition: opacity 0.15s;
+}
+
+.wb-map-cell:hover {
+  opacity: 1 !important;
+}
+
+/* --- 印刷 --- */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  .wb-noprint {
+    display: none !important;
+  }
+
+  .wb-root {
+    max-width: none;
+  }
+
+  .wb-spread {
+    border: none;
+    margin: 0;
+    break-inside: avoid;
+    break-after: page;
+  }
+
+  .wb-spread:last-of-type {
+    break-after: auto;
+  }
+
+  /* 紙では実物の赤シートを使うので、画面用の伏せ字は解除する */
+  .wb-sheet-on .wb-hide,
+  .wb-sheet-on .wb-hide.is-shown,
+  .wb-sheet-on .wb-hide .wb-hit-blue,
+  .wb-sheet-on .wb-hide .wb-hit-red {
+    color: inherit !important;
+    background: none !important;
+  }
+
+  .wb-sheet-on .wb-hide .wb-hit-blue,
+  .wb-sheet-on .wb-hide.is-shown .wb-hit-blue {
+    color: var(--wb-blue) !important;
+  }
+
+  .wb-sheet-on .wb-hide .wb-hit-red,
+  .wb-sheet-on .wb-hide.is-shown .wb-hit-red {
+    color: var(--wb-magenta) !important;
+  }
+}
+
 /* Flashcard Styles */
 .perspective-1000 {
   perspective: 1000px;

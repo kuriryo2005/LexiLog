@@ -197,7 +197,7 @@ export const DataTransferModal: React.FC<Props> = ({ open, onClose, uid, wordCou
         >
           <div
             onClick={handleClose}
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/30"
           />
           <motion.div
             initial={{ scale: 0.96, y: 12 }}
@@ -205,30 +205,29 @@ export const DataTransferModal: React.FC<Props> = ({ open, onClose, uid, wordCou
             exit={{ scale: 0.96, y: 12 }}
             className="relative w-full max-w-lg"
           >
-            <div className="w-full max-h-[85vh] overflow-y-auto bg-white rounded-3xl shadow-2xl border border-[#E5E7EB]">
+            <div className="w-full max-h-[85vh] overflow-y-auto bg-white">
               {/* Header */}
-              <div className="flex items-center justify-between p-6 border-b border-[#E5E7EB] sticky top-0 bg-white rounded-t-3xl">
+              <div className="flex items-center justify-between px-8 pt-8 pb-6 sticky top-0 bg-white">
                 <h2 className="text-lg font-black tracking-tight">データの書き出し / 復元</h2>
-                <Button
-                  variant="ghost"
-                  size="icon"
+                <button
+                  type="button"
                   onClick={handleClose}
                   disabled={busy}
-                  className="text-[#656E77] hover:text-[#1A1C1E]"
+                  className="w-8 h-8 flex items-center justify-center text-[#8A9199] hover:text-[#1A1C1E]"
                 >
                   <X className="w-5 h-5" />
-                </Button>
+                </button>
               </div>
 
               {/* Tabs */}
-              <div className="grid grid-cols-2 gap-1 p-1 bg-[#F1F3F5] rounded-xl m-6 mb-4">
+              <div className="flex gap-6 px-8 border-b border-[#EAECEF]">
                 <button
                   onClick={() => { setTab("export"); reset(); }}
                   disabled={busy}
-                  className={`flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${
+                  className={`flex items-center gap-2 pb-3 text-xs font-bold border-b-2 -mb-px transition-colors ${
                     tab === "export"
-                      ? "bg-white shadow-sm text-[#2A5CFF]"
-                      : "text-[#656E77] hover:bg-white/50"
+                      ? "text-[#1A1C1E] border-[#1A1C1E]"
+                      : "text-[#8A9199] border-transparent hover:text-[#1A1C1E]"
                   }`}
                 >
                   <Download className="w-4 h-4" />
@@ -237,10 +236,10 @@ export const DataTransferModal: React.FC<Props> = ({ open, onClose, uid, wordCou
                 <button
                   onClick={() => { setTab("import"); reset(); }}
                   disabled={busy}
-                  className={`flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${
+                  className={`flex items-center gap-2 pb-3 text-xs font-bold border-b-2 -mb-px transition-colors ${
                     tab === "import"
-                      ? "bg-white shadow-sm text-[#2A5CFF]"
-                      : "text-[#656E77] hover:bg-white/50"
+                      ? "text-[#1A1C1E] border-[#1A1C1E]"
+                      : "text-[#8A9199] border-transparent hover:text-[#1A1C1E]"
                   }`}
                 >
                   <Upload className="w-4 h-4" />
@@ -248,60 +247,58 @@ export const DataTransferModal: React.FC<Props> = ({ open, onClose, uid, wordCou
                 </button>
               </div>
 
-              <div className="px-6 pb-6">
+              <div className="px-8 py-6">
                 {tab === "export" ? (
-                  <div className="space-y-3">
-                    <p className="text-xs text-[#656E77] leading-relaxed">
+                  <div>
+                    <p className="text-xs text-[#656E77] leading-loose mb-6">
                       保存済みの <span className="font-bold text-[#1A1C1E]">{wordCount}</span> 件を書き出します。
-                      アプリを変更する前に、JSON でバックアップを取っておくことをおすすめします。
+                      絞り込み中でも常に全件が対象です。
                     </p>
                     {EXPORT_OPTIONS.map((opt) => (
                       <button
                         key={opt.format}
                         onClick={() => handleExport(opt.format)}
                         disabled={busy}
-                        className="w-full text-left p-4 rounded-2xl border border-[#E5E7EB] hover:border-[#2A5CFF] hover:bg-[#F0F4FF] transition-all disabled:opacity-50 flex items-start gap-4"
+                        className="w-full text-left py-4 border-t border-[#EAECEF] disabled:opacity-40 flex items-start gap-4 group"
                       >
-                        <div className="p-2 bg-[#E9F0FF] text-[#2A5CFF] rounded-xl shrink-0">
+                        <span className="text-[#8A9199] group-hover:text-[#2A5CFF] shrink-0 mt-0.5 transition-colors">
                           {opt.icon}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-sm font-bold text-[#1A1C1E]">{opt.label}</div>
-                          <div className="text-[11px] text-[#656E77] mt-0.5 leading-relaxed">
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-bold text-[#1A1C1E] group-hover:text-[#2A5CFF] transition-colors">
+                            {opt.label}
+                          </span>
+                          <span className="block text-[11px] text-[#8A9199] mt-0.5 leading-relaxed">
                             {opt.description}
-                          </div>
-                        </div>
+                          </span>
+                        </span>
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div>
                     {/* 結果表示 */}
                     {result ? (
-                      <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-100">
-                        <div className="flex items-center gap-2 mb-3">
+                      <div>
+                        <div className="flex items-center gap-2 mb-4">
                           <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                          <span className="text-sm font-black text-emerald-800">復元が完了しました</span>
+                          <span className="text-sm font-black text-[#1A1C1E]">復元が完了しました</span>
                         </div>
-                        <ul className="text-xs text-emerald-900 space-y-1 font-medium">
+                        <ul className="text-xs text-[#656E77] space-y-1.5 leading-relaxed mb-8">
                           <li>追加: {result.created} 件</li>
                           {result.overwritten > 0 && <li>上書き: {result.overwritten} 件</li>}
                           {result.skipped > 0 && <li>スキップ（既存）: {result.skipped} 件</li>}
                           {result.invalid > 0 && <li>取り込めなかった項目: {result.invalid} 件</li>}
                         </ul>
-                        <Button
-                          onClick={reset}
-                          variant="outline"
-                          className="mt-4 w-full rounded-xl text-xs font-bold"
-                        >
+                        <button type="button" onClick={reset} className="btn-quiet px-0 text-sm">
                           別のファイルを読み込む
-                        </Button>
+                        </button>
                       </div>
                     ) : !plan ? (
                       <>
-                        <p className="text-xs text-[#656E77] leading-relaxed">
-                          エクスポートした <span className="font-bold">JSON ファイル</span> を選ぶと、
-                          何件追加されるかを先に表示します。確認してから実行できます。
+                        <p className="text-xs text-[#656E77] leading-loose mb-6">
+                          書き出した JSON ファイルを選ぶと、何件追加されるかを先に表示します。
+                          確認してから実行できます。
                         </p>
                         <input
                           ref={fileRef}
@@ -309,21 +306,19 @@ export const DataTransferModal: React.FC<Props> = ({ open, onClose, uid, wordCou
                           accept="application/json,.json"
                           onChange={handleFileSelected}
                           disabled={busy}
-                          className="block w-full text-xs text-[#656E77] file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-[#E9F0FF] file:text-[#2A5CFF] hover:file:bg-[#DBE6FF] file:cursor-pointer cursor-pointer"
+                          className="block w-full text-xs text-[#656E77] file:mr-4 file:py-2 file:px-4 file:rounded-none file:border-0 file:text-xs file:font-bold file:bg-[#1A1C1E] file:text-white file:cursor-pointer cursor-pointer"
                         />
                       </>
                     ) : (
                       <>
                         {/* ドライラン結果 */}
-                        <div className="p-4 rounded-2xl bg-[#F0F4FF] border border-[#E9F0FF]">
-                          <div className="text-[10px] font-black text-[#2A5CFF] uppercase tracking-widest mb-3">
-                            実行するとこうなります
-                          </div>
-                          <ul className="text-xs text-[#1A1C1E] space-y-1.5 font-medium">
+                        <div className="mb-8">
+                          <div className="section-label">実行するとこうなります</div>
+                          <ul className="text-xs text-[#1A1C1E] space-y-2 leading-relaxed">
                             <li>新しく追加: <span className="font-black">{plan.toCreate.length}</span> 件</li>
                             <li>
                               既にある単語: <span className="font-black">{plan.duplicates.length}</span> 件
-                              <span className="text-[#656E77]">
+                              <span className="text-[#8A9199]">
                                 {strategy === "skip" && "（スキップ）"}
                                 {strategy === "overwrite" && "（上書き）"}
                                 {strategy === "duplicate" && "（別途追加）"}
@@ -335,7 +330,7 @@ export const DataTransferModal: React.FC<Props> = ({ open, onClose, uid, wordCou
                               </li>
                             )}
                             {plan.skippedDecks > 0 && (
-                              <li className="text-[#656E77]">
+                              <li className="text-[#8A9199]">
                                 デッキ {plan.skippedDecks} 件は現在のバージョンでは復元されません
                               </li>
                             )}
@@ -343,62 +338,72 @@ export const DataTransferModal: React.FC<Props> = ({ open, onClose, uid, wordCou
                         </div>
 
                         {/* 競合時の動作 */}
-                        <div className="space-y-2">
-                          <div className="text-[10px] font-bold text-[#656E77] uppercase tracking-widest">
-                            既にある単語の扱い
-                          </div>
+                        <div className="mb-8">
+                          <div className="section-label">既にある単語の扱い</div>
                           {STRATEGY_OPTIONS.map((opt) => (
                             <button
                               key={opt.value}
                               onClick={() => setStrategy(opt.value)}
                               disabled={busy}
-                              className={`w-full text-left p-3 rounded-xl border transition-all ${
-                                strategy === opt.value
-                                  ? "border-[#2A5CFF] bg-[#F0F4FF]"
-                                  : "border-[#E5E7EB] hover:bg-[#F1F3F5]"
-                              }`}
+                              className="w-full text-left py-3 border-t border-[#F1F3F5] flex items-start gap-3"
                             >
-                              <div className="text-xs font-bold text-[#1A1C1E]">{opt.label}</div>
-                              <div className="text-[10px] text-[#656E77] mt-0.5">{opt.description}</div>
+                              <span
+                                className={`w-3.5 h-3.5 mt-0.5 shrink-0 rounded-full border-2 ${
+                                  strategy === opt.value
+                                    ? "border-[#1A1C1E] bg-[#1A1C1E]"
+                                    : "border-[#C9CDD2]"
+                                }`}
+                              />
+                              <span>
+                                <span
+                                  className={`block text-xs font-bold ${
+                                    strategy === opt.value ? "text-[#1A1C1E]" : "text-[#656E77]"
+                                  }`}
+                                >
+                                  {opt.label}
+                                </span>
+                                <span className="block text-[10px] text-[#8A9199] mt-0.5">
+                                  {opt.description}
+                                </span>
+                              </span>
                             </button>
                           ))}
                         </div>
 
                         {strategy === "overwrite" && (
-                          <div className="flex gap-2 p-3 rounded-xl bg-orange-50 border border-orange-100">
+                          <p className="flex gap-2 mb-8 pl-4 border-l-2 border-orange-400 text-[11px] text-[#656E77] leading-loose">
                             <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
-                            <p className="text-[10px] text-orange-800 leading-relaxed">
-                              既存の単語の内容が置き換わります。実行前に現在のデータを
-                              JSON で書き出しておくことをおすすめします。
-                            </p>
-                          </div>
+                            既存の単語の内容が置き換わります。実行前に現在のデータを
+                            JSON で書き出しておくことをおすすめします。
+                          </p>
                         )}
 
                         {progress && progress.total > 0 && (
-                          <div className="h-1.5 bg-[#F1F3F5] rounded-full overflow-hidden">
+                          <div className="h-0.5 bg-[#F1F3F5] mb-8">
                             <div
-                              className="h-full bg-[#2A5CFF] transition-all"
+                              className="h-0.5 bg-[#1A1C1E] transition-all"
                               style={{ width: `${(progress.done / progress.total) * 100}%` }}
                             />
                           </div>
                         )}
 
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={reset}
-                            variant="outline"
-                            disabled={busy}
-                            className="flex-1 rounded-xl text-xs font-bold"
-                          >
-                            やめる
-                          </Button>
-                          <Button
+                        <div className="flex items-center gap-8">
+                          <button
+                            type="button"
                             onClick={handleApply}
                             disabled={busy || !willWrite}
-                            className="flex-1 rounded-xl bg-[#2A5CFF] hover:bg-blue-700 text-xs font-bold"
+                            className="btn-primary"
                           >
                             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "実行する"}
-                          </Button>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={reset}
+                            disabled={busy}
+                            className="text-sm font-bold text-[#8A9199] hover:text-[#1A1C1E] disabled:opacity-30"
+                          >
+                            やめる
+                          </button>
                         </div>
                       </>
                     )}

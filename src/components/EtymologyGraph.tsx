@@ -224,16 +224,18 @@ export const EtymologyGraph: React.FC<Props> = ({ mainWord, nodes }) => {
   }, [graphData, handleExpandRoot]);
 
   return (
-    <div ref={containerRef} className="w-full h-[300px] md:h-[400px] bg-white/40 rounded-3xl border border-[#2A5CFF]/10 overflow-hidden relative">
-      <div className="absolute top-6 left-8 z-10 pointer-events-none">
-        <h4 className="text-[10px] font-black text-[#2A5CFF] uppercase tracking-[0.2em] mb-1">Interactive Etymology</h4>
-        <p className="text-[11px] text-[#656E77] font-bold">クリックした語根から広がる未知の言葉</p>
+    <div
+      ref={containerRef}
+      className="w-full h-[300px] md:h-[400px] border-t border-b border-[#EAECEF] overflow-hidden relative"
+    >
+      <div className="absolute top-4 left-0 z-10 pointer-events-none">
+        <p className="text-[11px] text-[#8A9199]">語根をクリックすると関連する語を表示します</p>
       </div>
 
       {isExpanding && (
-        <div className="absolute top-6 right-8 z-20 flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg animate-pulse">
+        <div className="absolute top-4 right-0 z-20 flex items-center gap-1.5 text-[11px] font-bold text-[#2A5CFF]">
           <Loader2 className="w-3 h-3 animate-spin" />
-          Expanding Root...
+          読み込み中
         </div>
       )}
 
@@ -243,13 +245,13 @@ export const EtymologyGraph: React.FC<Props> = ({ mainWord, nodes }) => {
         {hoveredNode && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
             style={{ position: 'fixed', left: tooltipPos.x + 15, top: tooltipPos.y - 100, zIndex: 1000 }}
-            className="bg-[#1A1C1E] text-white p-4 rounded-2xl shadow-2xl border border-white/10 w-[200px]"
+            className="bg-[#1A1C1E] text-white p-4 shadow-lg w-[200px]"
           >
             <h5 className="text-sm font-black mb-1">{hoveredNode.label}</h5>
-            <p className="text-xs font-bold text-blue-300 mb-2">{hoveredNode.meaning}</p>
+            <p className="text-xs text-blue-300 mb-2">{hoveredNode.meaning}</p>
             {hoveredNode.root && (
-              <div className="pt-2 border-t border-white/5 text-[9px] text-gray-400">
-                Root: <span className="text-white">{hoveredNode.root}</span>
+              <div className="pt-2 border-t border-white/10 text-[10px] text-gray-400">
+                語根: <span className="text-white">{hoveredNode.root}</span>
               </div>
             )}
           </motion.div>

@@ -7,8 +7,7 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Plus, Trash2, Loader2 } from "lucide-react";
-import { Button } from "./ui/button";
+import { X, Trash2, Loader2 } from "lucide-react";
 import { Input } from "./ui/input";
 import { toast } from "sonner";
 import { Deck, SavedWord } from "../types";
@@ -39,6 +38,14 @@ export const DeckManager: React.FC<Props> = ({ open, onClose, api, words }) => {
     }
   };
 
+  const submitNew = () => {
+    if (!newName.trim()) return;
+    run(async () => {
+      await api.create(newName);
+      setNewName("");
+    });
+  };
+
   return (
     <AnimatePresence>
       {open && (
@@ -47,39 +54,42 @@ export const DeckManager: React.FC<Props> = ({ open, onClose, api, words }) => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={() => !busy && onClose()}
-          className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-[200] bg-black/30 flex items-center justify-center p-4"
         >
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 12 }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg max-h-[85vh] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+            className="w-full max-w-lg max-h-[85vh] bg-white flex flex-col overflow-hidden"
           >
-            <div className="flex items-center justify-between p-6 border-b border-[#E5E7EB]">
+            <div className="flex items-start justify-between gap-4 px-8 pt-8 pb-6">
               <div>
                 <h2 className="text-lg font-black text-[#1A1C1E]">デッキ</h2>
-                <p className="text-xs text-[#656E77] mt-0.5">
-                  単語をしまう入れ物。1単語につき1つまで
-                </p>
+                <p className="text-xs text-[#8A9199] mt-1">1つの単語が入れるデッキは1つまでです。</p>
               </div>
-              <Button variant="ghost" size="icon" onClick={onClose} disabled={busy}>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+                className="w-8 h-8 shrink-0 flex items-center justify-center text-[#8A9199] hover:text-[#1A1C1E]"
+              >
                 <X className="w-5 h-5" />
-              </Button>
+              </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-2">
+            <div className="flex-1 overflow-y-auto px-8">
               {api.decks.length === 0 && (
-                <p className="text-xs text-[#656E77] text-center py-8">
-                  まだデッキがありません。下から作成できます。
+                <p className="text-xs text-[#8A9199] py-8 border-t border-[#EAECEF]">
+                  デッキはまだありません。下の欄から作成できます。
                 </p>
               )}
 
               {api.decks.map((deck) => (
-                <div key={deck.id} className="p-3 rounded-xl border border-[#E5E7EB] space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="w-3 h-3 rounded-full shrink-0"
+                <div key={deck.id} className="py-4 border-t border-[#EAECEF]">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="w-2 h-2 shrink-0 rounded-full"
                       style={{ backgroundColor: deck.color }}
                     />
                     <Input
@@ -89,31 +99,32 @@ export const DeckManager: React.FC<Props> = ({ open, onClose, api, words }) => {
                         const value = e.target.value.trim();
                         if (value && value !== deck.name) run(() => api.rename(deck.id, value));
                       }}
-                      className="h-8 flex-1 text-sm font-bold border-0 bg-transparent px-1 focus:bg-[#F1F3F5] rounded"
+                      className="h-8 flex-1 text-sm font-bold bg-transparent border-0 rounded-none px-0 focus:ring-0 focus:outline-none"
                     />
-                    <span className="text-[10px] font-bold text-[#656E77] shrink-0">
+                    <span className="text-[11px] text-[#8A9199] shrink-0 tabular-nums">
                       {countIn(deck.id)} 語
                     </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    <button
+                      type="button"
                       disabled={busy}
                       onClick={() => setConfirming(deck)}
-                      className="w-7 h-7 text-gray-300 hover:text-red-500"
+                      title="削除"
+                      className="w-7 h-7 shrink-0 flex items-center justify-center text-[#C9CDD2] hover:text-red-500"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    </button>
                   </div>
 
-                  <div className="flex gap-1.5 pl-5">
+                  <div className="flex gap-2 pl-5 mt-3">
                     {DECK_COLORS.map((color) => (
                       <button
                         key={color}
                         type="button"
                         disabled={busy}
                         onClick={() => run(() => api.recolor(deck.id, color))}
-                        className={`w-5 h-5 rounded-full transition-transform hover:scale-110 ${
-                          deck.color === color ? "ring-2 ring-offset-2 ring-[#1A1C1E]/20" : ""
+                        title="色を変更"
+                        className={`w-4 h-4 rounded-full transition-opacity ${
+                          deck.color === color ? "opacity-100" : "opacity-30 hover:opacity-70"
                         }`}
                         style={{ backgroundColor: color }}
                       />
@@ -123,38 +134,27 @@ export const DeckManager: React.FC<Props> = ({ open, onClose, api, words }) => {
               ))}
             </div>
 
-            <div className="p-6 border-t border-[#E5E7EB]">
-              <div className="flex gap-2">
+            <div className="px-8 pt-6 pb-8 border-t border-[#EAECEF]">
+              <div className="flex items-end gap-4">
                 <Input
                   placeholder="新しいデッキ名"
                   value={newName}
                   disabled={busy || api.decks.length >= MAX_DECKS}
                   onChange={(e) => setNewName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && newName.trim()) {
-                      run(async () => {
-                        await api.create(newName);
-                        setNewName("");
-                      });
-                    }
-                  }}
-                  className="h-11 flex-1 rounded-xl border-2 border-[#E5E7EB]"
+                  onKeyDown={(e) => e.key === "Enter" && submitNew()}
+                  className="field h-10 flex-1 text-sm"
                 />
-                <Button
+                <button
+                  type="button"
                   disabled={busy || !newName.trim() || api.decks.length >= MAX_DECKS}
-                  onClick={() =>
-                    run(async () => {
-                      await api.create(newName);
-                      setNewName("");
-                    })
-                  }
-                  className="h-11 px-5 rounded-xl bg-[#2A5CFF] hover:bg-blue-700 text-white font-bold"
+                  onClick={submitNew}
+                  className="btn-quiet h-10 px-0 text-sm"
                 >
-                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                </Button>
+                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "追加"}
+                </button>
               </div>
               {api.decks.length >= MAX_DECKS && (
-                <p className="text-[10px] text-[#656E77] mt-2">
+                <p className="text-[11px] text-[#8A9199] mt-3">
                   デッキは {MAX_DECKS} 個までです。
                 </p>
               )}
@@ -164,32 +164,26 @@ export const DeckManager: React.FC<Props> = ({ open, onClose, api, words }) => {
           {/* 削除の確認。単語が消えないことを明示する */}
           {confirming && (
             <div
-              className="fixed inset-0 z-[210] bg-black/40 flex items-center justify-center p-4"
+              className="fixed inset-0 z-[210] bg-black/30 flex items-center justify-center p-4"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-2xl">
-                <h3 className="font-black text-[#1A1C1E] mb-2">
+              <div className="w-full max-w-sm bg-white p-8">
+                <h3 className="font-black text-[#1A1C1E] mb-3">
                   「{confirming.name}」を削除しますか？
                 </h3>
-                <p className="text-xs text-[#656E77] leading-relaxed mb-6">
+                <p className="text-xs text-[#656E77] leading-loose mb-8">
                   {countIn(confirming.id) > 0 ? (
                     <>
-                      このデッキの <strong>{countIn(confirming.id)} 語は未分類に移動します</strong>。
+                      このデッキの {countIn(confirming.id)} 語は未分類に移動します。
                       単語は削除されません。
                     </>
                   ) : (
-                    "このデッキには単語がありません。"
+                    "このデッキに単語はありません。"
                   )}
                 </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setConfirming(null)}
-                    className="flex-1 h-10 rounded-xl border-2 border-[#E5E7EB] font-bold text-[#656E77]"
-                  >
-                    やめる
-                  </Button>
-                  <Button
+                <div className="flex items-center gap-8">
+                  <button
+                    type="button"
                     disabled={busy}
                     onClick={() =>
                       run(async () => {
@@ -202,10 +196,17 @@ export const DeckManager: React.FC<Props> = ({ open, onClose, api, words }) => {
                         );
                       })
                     }
-                    className="flex-1 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold"
+                    className="text-sm font-bold text-red-600 border-b border-red-600 disabled:opacity-30"
                   >
-                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "削除する"}
-                  </Button>
+                    {busy ? "削除中" : "削除する"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(null)}
+                    className="text-sm font-bold text-[#8A9199] hover:text-[#1A1C1E]"
+                  >
+                    やめる
+                  </button>
                 </div>
               </div>
             </div>

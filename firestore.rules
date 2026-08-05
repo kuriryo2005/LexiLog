@@ -54,6 +54,13 @@ service cloud.firestore {
              (!('updatedAt' in data) || data.updatedAt is number) &&
              (!('deckId' in data) || data.deckId == null || (data.deckId is string && data.deckId.size() <= 128)) &&
              (!('enrichStatus' in data) || (data.enrichStatus in ['pending', 'done', 'error'])) &&
+             // v3 追加：単語帳の紙面用。すべて optional
+             (!('senses' in data) || (data.senses is list && data.senses.size() <= 8)) &&
+             (!('targetPhrases' in data) || (data.targetPhrases is list && data.targetPhrases.size() <= 8)) &&
+             (!('derivatives' in data) || (data.derivatives is list && data.derivatives.size() <= 8)) &&
+             (!('examLevel' in data) || (data.examLevel is string && data.examLevel.size() <= 10)) &&
+             // つながり図で生成した語源の解説（生成のたびの課金を避けるため保存する）
+             (!('etymologyStory' in data) || (data.etymologyStory is string && data.etymologyStory.size() <= 2000)) &&
              isValidSource(data) &&
              isValidTags(data);
     }
@@ -92,7 +99,11 @@ service cloud.firestore {
                         'aiAnalysis', 'reviewHistory', 'collocations', 'importanceScore',
                         // v2
                         'schemaVersion', 'wordLower', 'updatedAt', 'tags', 'deckId', 'phonetic',
-                        'enrichStatus', 'source'
+                        'enrichStatus', 'source',
+                        // v3（単語帳の紙面用）
+                        'senses', 'targetPhrases', 'derivatives', 'examLevel',
+                        // つながり図
+                        'etymologyStory'
                       ]);
       
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;

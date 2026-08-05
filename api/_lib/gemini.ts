@@ -54,11 +54,59 @@ export const WORD_SCHEMA = {
     meaning: { type: Type.STRING },
     grammar: { type: Type.STRING },
     phonetic: { type: Type.STRING },
+    // 紙面（単語帳）で使う項目。左ページの中身なので早めに返してほしい
+    senses: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          ja: { type: Type.STRING },
+          pos: { type: Type.STRING },
+        },
+        required: ["ja"],
+      },
+    },
+    targetPhrases: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          en: { type: Type.STRING },
+          ja: { type: Type.STRING },
+        },
+        required: ["en", "ja"],
+      },
+    },
+    derivatives: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          word: { type: Type.STRING },
+          pos: { type: Type.STRING },
+          meaning: { type: Type.STRING },
+        },
+        required: ["word", "pos", "meaning"],
+      },
+    },
+    examLevel: { type: Type.STRING },
     category: { type: Type.STRING },
     nuance: { type: Type.STRING },
     etymology: { type: Type.STRING },
     importanceScore: { type: Type.NUMBER },
-    examples: { type: Type.ARRAY, items: { type: Type.STRING } },
+    // 和訳を必ず伴わせるため、"英文\n和訳" の1本の文字列ではなく組で返させる。
+    // 文字列形式だと和訳が落ちることがあった（normalizeExamples は両形式に対応）。
+    examples: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          en: { type: Type.STRING },
+          ja: { type: Type.STRING },
+        },
+        required: ["en", "ja"],
+      },
+    },
     collocations: { type: Type.ARRAY, items: { type: Type.STRING } },
     synonyms: { type: Type.ARRAY, items: wordRelation },
     antonyms: { type: Type.ARRAY, items: wordRelation },
@@ -89,7 +137,8 @@ export const WORD_SCHEMA = {
     },
   },
   required: [
-    "word", "meaning", "grammar", "phonetic", "category", "nuance", "etymology",
+    "word", "meaning", "grammar", "phonetic", "senses", "targetPhrases", "derivatives",
+    "examLevel", "category", "nuance", "etymology",
     "importanceScore", "examples", "collocations", "synonyms", "antonyms",
     "specializedContexts", "etymologyNodes",
   ],
@@ -97,16 +146,48 @@ export const WORD_SCHEMA = {
 
 export function buildLookupPrompt(word: string, mode: ModeSlug): string {
   const context = mode === "gen" ? "general everyday usage" : "academic and research contexts";
+
   return `Look up the English word "${word}" specifically for ${context}.
 Prioritize meanings in ${context}.
+
+Write the Japanese exactly in the style of a Japanese university-entrance vocabulary
+book (旺文社「英単語ターゲット」). This style is strict — follow it precisely:
+
+* Transitive verbs start with the object particle: "を変える", "を学ぶ", "に尋ねる".
+* Show the kind of object in parentheses: "(人)を手伝う", "(物)を与える".
+* Separate near-synonymous wordings inside one sense with "，": "(人)を手伝う，助ける".
+* Do NOT write a full sentence, a definition, or "〜という意味" — write only the gloss.
+
 Provide:
-- meaning: Japanese translation
-- grammar: part of speech
+- senses: the numbered meanings (①②③), most frequent first, 1-4 entries.
+  Each { ja: the gloss in the style above, pos: 1-char part of speech such as
+  動/名/形/副 only when it differs from the headword's main part of speech }.
+  Example for "help": [{ja:"(人)を手伝う，助ける"},{ja:"(人)に役立つ"}]
+- meaning: the same senses joined with "；" (kept for compatibility).
+  Example for "change": "を変える；変わる；を替える"
+- targetPhrases: 2-4 grammar patterns / collocations the word actually appears in,
+  in the book's frame notation. Use A, B for noun slots, "do" for a bare infinitive,
+  "doing" for a gerund, "~" for a free element.
+  { en: the frame, ja: its Japanese reading WITHOUT 「」 }
+  Examples:
+    help  -> [{en:"help A with B", ja:"AのBを手伝う"},{en:"help ~ (to) do", ja:"〜するのを手伝う"}]
+    learn -> [{en:"learn A from B", ja:"BからAを学ぶ"},{en:"learn about ~", ja:"〜について学ぶ"}]
+    change-> [{en:"change one's life", ja:"〜の人生を変える"},{en:"change trains", ja:"乗り換える"}]
+- derivatives: related forms of the SAME root (noun/adjective/adverb forms), 0-3 entries.
+  { word, pos: one of 名/形/副/動, meaning: gloss in the same style }
+  Example for "help": [{word:"help", pos:"名", meaning:"助け，手伝い"}]
+- examLevel: one of 基礎 / 標準 / 難関 — how advanced this word is for entrance exams.
+- grammar: part of speech in Japanese (動詞 / 名詞 / 形容詞 ...)
 - phonetic: IPA pronunciation WITHOUT surrounding slashes (e.g. ˈtɜːbjələns)
 - category: professional field (e.g. Mechanical Engineering, Finance, etc.)
 - nuance: semantic difference from synonyms, in Japanese
 - etymology: origin, in Japanese
-- examples: 3 entries, each formatted as "English sentence\\nJapanese translation"
+- examples: 3 entries of { en: an English sentence, ja: its Japanese translation }.
+  Both fields are required — never leave ja empty.
+  The FIRST example must use the first sense, must contain "${word}" (any inflected
+  form is fine), and must be a natural full sentence of 6-14 words.
+  Its ja must translate the sense using the same wording as senses[0] so that the
+  corresponding part of the Japanese sentence is recognisable.
 - collocations: 5 common English verb/noun pairings
 - synonyms/antonyms: 3 pairs each with Japanese translations
 - specializedContexts: 3 fields with concise Japanese usage explanations

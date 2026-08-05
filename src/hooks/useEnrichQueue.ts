@@ -13,6 +13,7 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { DictionaryMode, SavedWord } from "../types";
 import { lookupWord } from "../services/geminiService";
+import { TARGET_SCHEMA_VERSION } from "../lib/normalize";
 
 /** 同時に走らせる本数。増やすとレート制限に当たりやすくなる。 */
 const CONCURRENCY = 2;
@@ -83,6 +84,12 @@ export function useEnrichQueue(words: SavedWord[], enabled: boolean): EnrichProg
               specializedContexts: detail.specializedContexts ?? [],
               etymologyNodes: detail.etymologyNodes ?? [],
               importanceScore: detail.importanceScore ?? 0.5,
+              // 単語帳の紙面用（v3）
+              senses: detail.senses ?? [],
+              targetPhrases: detail.targetPhrases ?? [],
+              derivatives: detail.derivatives ?? [],
+              examLevel: detail.examLevel ?? "",
+              schemaVersion: TARGET_SCHEMA_VERSION,
               enrichStatus: "done",
               updatedAt: Date.now(),
             });

@@ -11,7 +11,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { Loader2, X, ClipboardPaste, Check } from "lucide-react";
 import { writeBatch, doc, collection } from "firebase/firestore";
 import { db } from "../firebase";
-import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { toast } from "sonner";
 import { DictionaryMode, Deck, ExtractedCandidate, SavedWord } from "../types";
@@ -31,11 +30,12 @@ interface Props {
   mode: DictionaryMode;
 }
 
+/** 難易度は文字色だけで区別する（背景で塗り分けると囲みに見えるため） */
 const LEVEL_STYLE: Record<string, string> = {
-  B2: "bg-gray-100 text-gray-600",
-  C1: "bg-blue-100 text-blue-700",
-  C2: "bg-purple-100 text-purple-700",
-  technical: "bg-orange-100 text-orange-700",
+  B2: "text-[#8A9199]",
+  C1: "text-[#2A5CFF]",
+  C2: "text-[#7C3AED]",
+  technical: "text-[#EA580C]",
 };
 
 export const BulkExtractModal: React.FC<Props> = ({ open, onClose, uid, words, decks, mode }) => {
@@ -180,45 +180,50 @@ export const BulkExtractModal: React.FC<Props> = ({ open, onClose, uid, words, d
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-[200] bg-black/30 flex items-center justify-center p-4"
           onClick={close}
         >
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 12 }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-3xl max-h-[88vh] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+            className="w-full max-w-3xl max-h-[88vh] bg-white flex flex-col overflow-hidden"
           >
-            <div className="flex items-center justify-between p-6 border-b border-[#E5E7EB]">
+            <div className="flex items-start justify-between gap-4 px-8 pt-8 pb-6">
               <div>
-                <h2 className="text-lg font-black text-[#1A1C1E]">英文から単語を集める</h2>
-                <p className="text-xs text-[#656E77] mt-0.5">
-                  論文や記事を貼り付けると、学習価値のある語を抽出します
+                <h2 className="text-lg font-black text-[#1A1C1E]">英文から単語を追加</h2>
+                <p className="text-xs text-[#8A9199] mt-1">
+                  英文を貼り付けると、保存していない語を抽出します。
                 </p>
               </div>
-              <Button variant="ghost" size="icon" onClick={close} disabled={busy}>
+              <button
+                type="button"
+                onClick={close}
+                disabled={busy}
+                className="w-8 h-8 shrink-0 flex items-center justify-center text-[#8A9199] hover:text-[#1A1C1E]"
+              >
                 <X className="w-5 h-5" />
-              </Button>
+              </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div className="flex-1 overflow-y-auto px-8 border-t border-[#EAECEF] pt-6">
               {!candidates ? (
                 <>
                   <Input
                     placeholder="出典タイトル（任意）"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="h-11 rounded-xl border-2 border-[#E5E7EB]"
+                    className="field h-10 text-sm mb-6"
                   />
                   <textarea
                     value={text}
                     onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT))}
-                    placeholder="ここに英文を貼り付けてください..."
-                    className="w-full h-64 p-4 rounded-2xl border-2 border-[#E5E7EB] bg-[#F8F9FA] focus:bg-white focus:border-[#2A5CFF] outline-none text-sm leading-relaxed resize-none"
+                    placeholder="ここに英文を貼り付けてください"
+                    className="w-full h-64 bg-transparent border-0 border-b border-[#E5E7EB] rounded-none px-0 py-2 focus:border-[#1A1C1E] outline-none text-sm leading-loose resize-none"
                   />
-                  <div className="flex justify-between items-center text-[11px] text-[#656E77] font-bold">
-                    <span>
+                  <div className="flex justify-between items-center text-[11px] text-[#8A9199] mt-3">
+                    <span className="tabular-nums">
                       {text.length} / {MAX_TEXT} 文字
                     </span>
                     <span>保存済みの {knownSet.size} 語は候補から除外されます</span>
@@ -226,11 +231,11 @@ export const BulkExtractModal: React.FC<Props> = ({ open, onClose, uid, words, d
                 </>
               ) : (
                 <>
-                  <div className="flex flex-wrap gap-2 items-center pb-2">
+                  <div className="flex flex-wrap gap-x-6 gap-y-2 items-end mb-6">
                     <select
                       value={deckId ?? ""}
                       onChange={(e) => setDeckId(e.target.value || null)}
-                      className="h-9 px-3 rounded-lg border-2 border-[#E5E7EB] text-xs font-bold bg-white"
+                      className="h-9 bg-transparent border-0 border-b border-[#E5E7EB] rounded-none text-xs font-bold focus:outline-none"
                     >
                       <option value="">未分類</option>
                       {decks.map((d) => (
@@ -243,11 +248,11 @@ export const BulkExtractModal: React.FC<Props> = ({ open, onClose, uid, words, d
                       placeholder="タグ（カンマ区切り・任意）"
                       value={tagInput}
                       onChange={(e) => setTagInput(e.target.value)}
-                      className="h-9 flex-1 min-w-[160px] rounded-lg border-2 border-[#E5E7EB] text-xs"
+                      className="field h-9 flex-1 min-w-[160px] text-xs"
                     />
                   </div>
 
-                  <div className="space-y-1">
+                  <div>
                     {candidates.map((c) => {
                       const key = toWordLower(c.word);
                       const saved = knownSet.has(key);
@@ -260,36 +265,28 @@ export const BulkExtractModal: React.FC<Props> = ({ open, onClose, uid, words, d
                           disabled={saved}
                           onClick={() => toggle(c.word)}
                           title={c.sentence}
-                          className={`w-full text-left p-3 rounded-xl border transition-colors flex items-start gap-3 ${
-                            saved
-                              ? "opacity-40 border-transparent cursor-not-allowed"
-                              : checked
-                              ? "bg-[#E9F0FF] border-[#2A5CFF]/30"
-                              : "bg-white border-[#E5E7EB] hover:bg-[#F1F3F5]"
+                          className={`w-full text-left py-3 border-t border-[#F1F3F5] first:border-t-0 flex items-start gap-3 transition-opacity ${
+                            saved ? "opacity-35 cursor-not-allowed" : ""
                           }`}
                         >
-                          <div
-                            className={`w-5 h-5 mt-0.5 shrink-0 rounded-md border-2 flex items-center justify-center ${
-                              checked ? "bg-[#2A5CFF] border-[#2A5CFF]" : "border-[#D1D5DB]"
+                          <span
+                            className={`w-4 h-4 mt-1 shrink-0 border flex items-center justify-center ${
+                              checked ? "bg-[#1A1C1E] border-[#1A1C1E]" : "border-[#C9CDD2]"
                             }`}
                           >
                             {checked && <Check className="w-3 h-3 text-white" />}
-                          </div>
+                          </span>
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-baseline gap-2 flex-wrap">
                               <span className="font-bold text-sm text-[#1A1C1E]">{c.word}</span>
                               <span
-                                className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${
+                                className={`text-[10px] font-bold uppercase tracking-wider ${
                                   LEVEL_STYLE[c.level] ?? LEVEL_STYLE.C1
                                 }`}
                               >
                                 {c.level}
                               </span>
-                              {saved && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 font-bold">
-                                  保存済み
-                                </span>
-                              )}
+                              {saved && <span className="text-[10px] text-[#8A9199]">保存済み</span>}
                             </div>
                             <p className="text-[11px] text-[#656E77] mt-0.5">{c.meaningShort}</p>
                           </div>
@@ -301,46 +298,48 @@ export const BulkExtractModal: React.FC<Props> = ({ open, onClose, uid, words, d
               )}
             </div>
 
-            <div className="p-6 border-t border-[#E5E7EB] flex gap-3">
+            <div className="px-8 pt-6 pb-8 border-t border-[#EAECEF] flex items-center gap-8">
               {!candidates ? (
-                <Button
+                <button
+                  type="button"
                   onClick={handleExtract}
                   disabled={busy || !text.trim()}
-                  className="flex-1 h-12 rounded-2xl bg-[#2A5CFF] hover:bg-blue-700 text-white font-bold"
+                  className="btn-primary"
                 >
                   {busy ? (
                     <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      抽出中...
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      抽出中
                     </>
                   ) : (
                     <>
-                      <ClipboardPaste className="w-4 h-4 mr-2" />
-                      単語を抽出する
+                      <ClipboardPaste className="w-4 h-4" />
+                      単語を抽出
                     </>
                   )}
-                </Button>
+                </button>
               ) : (
                 <>
-                  <Button
-                    variant="outline"
-                    onClick={() => setCandidates(null)}
-                    disabled={busy}
-                    className="h-12 rounded-2xl border-2 border-[#E5E7EB] font-bold text-[#656E77] px-6"
-                  >
-                    戻る
-                  </Button>
-                  <Button
+                  <button
+                    type="button"
                     onClick={handleSave}
                     disabled={busy || selectableCount === 0}
-                    className="flex-1 h-12 rounded-2xl bg-[#2A5CFF] hover:bg-blue-700 text-white font-bold"
+                    className="btn-primary"
                   >
                     {busy ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
-                      `${selectableCount} 件を保存`
+                      `${selectableCount} 語を保存`
                     )}
-                  </Button>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCandidates(null)}
+                    disabled={busy}
+                    className="text-sm font-bold text-[#8A9199] hover:text-[#1A1C1E] disabled:opacity-30"
+                  >
+                    戻る
+                  </button>
                 </>
               )}
             </div>

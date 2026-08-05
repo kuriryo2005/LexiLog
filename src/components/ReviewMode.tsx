@@ -4,21 +4,14 @@
  * カードの順序は useReviewSession が持つ ID キューで固定されており、
  * この画面は表示と入力だけを担当する。onSnapshot でリストが並び替わっても
  * 進行位置がずれないのはそのため。
+ *
+ * 表示はカード状の囲みを使わず、上下の罫線で領域を示す。
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import {
-  BrainCircuit,
-  ChevronLeft,
-  ChevronRight,
-  RotateCw,
-  Volume2,
-  Check,
-  Repeat,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, RotateCw, Volume2, Repeat } from "lucide-react";
 import { ReviewRating, SavedWord } from "../types";
-import { Button } from "./ui/button";
 import type { ReviewSessionApi } from "../hooks/useReviewSession";
 import {
   formatPhonetic,
@@ -41,15 +34,24 @@ interface Props {
 const RATING_BUTTONS: {
   rating: ReviewRating;
   label: string;
-  sub: string;
   key: string;
-  className: string;
+  color: string;
 }[] = [
-  { rating: ReviewRating.AGAIN, label: "AGAIN", sub: "忘れた", key: "1", className: "bg-red-50 text-red-600 border-red-100 hover:bg-red-100" },
-  { rating: ReviewRating.HARD, label: "HARD", sub: "難しい", key: "2", className: "bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100" },
-  { rating: ReviewRating.GOOD, label: "GOOD", sub: "覚えた", key: "3", className: "bg-green-50 text-green-600 border-green-100 hover:bg-green-100" },
-  { rating: ReviewRating.EASY, label: "EASY", sub: "余裕", key: "4", className: "bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100" },
+  { rating: ReviewRating.AGAIN, label: "忘れた", key: "1", color: "#DC2626" },
+  { rating: ReviewRating.HARD, label: "難しい", key: "2", color: "#EA580C" },
+  { rating: ReviewRating.GOOD, label: "覚えた", key: "3", color: "#059669" },
+  { rating: ReviewRating.EASY, label: "余裕", key: "4", color: "#2A5CFF" },
 ];
+
+/** 裏面の項目。見出しは小さく、本文との間は余白で取る。 */
+const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="mb-7">
+    <div className="text-[10px] font-bold text-[#8A9199] uppercase tracking-[0.12em] mb-2">
+      {label}
+    </div>
+    {children}
+  </div>
+);
 
 function SpeakButton({
   word,
@@ -67,7 +69,6 @@ function SpeakButton({
 
   if (!available) return null;
 
-  const px = size === "sm" ? "w-8 h-8" : "w-11 h-11";
   return (
     <button
       type="button"
@@ -76,7 +77,9 @@ function SpeakButton({
         speak(word, settings);
       }}
       title="発音を再生 (S)"
-      className={`${px} shrink-0 rounded-full bg-white border border-[#E5E7EB] text-[#2A5CFF] flex items-center justify-center hover:bg-[#E9F0FF] hover:border-[#2A5CFF]/30 transition-colors`}
+      className={`${
+        size === "sm" ? "w-7 h-7" : "w-9 h-9"
+      } shrink-0 flex items-center justify-center text-[#8A9199] hover:text-[#2A5CFF] transition-colors`}
     >
       <Volume2 className={size === "sm" ? "w-3.5 h-3.5" : "w-5 h-5"} />
     </button>
@@ -175,50 +178,45 @@ export const ReviewMode: React.FC<Props> = ({ api, onGrade, onExit }) => {
 
     return (
       <motion.div
-        initial={{ opacity: 0, scale: 0.96 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="max-w-xl mx-auto flex flex-col h-full items-center justify-center py-6 text-center"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-xl mx-auto flex flex-col h-full justify-center py-6"
       >
-        <div className="w-16 h-16 rounded-3xl bg-[#E9F0FF] flex items-center justify-center mb-6">
-          <Check className="w-8 h-8 text-[#2A5CFF]" />
-        </div>
-
-        <h2 className="text-3xl font-black text-[#1A1C1E] mb-2">セッション終了</h2>
-        <p className="text-xs text-[#656E77] font-bold uppercase tracking-widest mb-10">
-          {graded} cards · {minutes > 0 ? `${minutes}分` : ""}{seconds}秒
+        <h2 className="text-3xl font-black text-[#1A1C1E] mb-2">復習を終えました</h2>
+        <p className="text-sm text-[#8A9199] mb-12">
+          {graded} 枚 · {minutes > 0 ? `${minutes}分` : ""}
+          {seconds}秒
         </p>
 
-        <div className="grid grid-cols-4 gap-3 w-full mb-10">
+        <div className="grid grid-cols-4 gap-6 pt-6 border-t border-[#EAECEF] mb-12">
           {[
-            { label: "AGAIN", value: counts.again, className: "bg-red-50 text-red-600 border-red-100" },
-            { label: "HARD", value: counts.hard, className: "bg-orange-50 text-orange-600 border-orange-100" },
-            { label: "GOOD", value: counts.good, className: "bg-green-50 text-green-600 border-green-100" },
-            { label: "EASY", value: counts.easy, className: "bg-blue-50 text-blue-600 border-blue-100" },
+            { label: "忘れた", value: counts.again, color: "#DC2626" },
+            { label: "難しい", value: counts.hard, color: "#EA580C" },
+            { label: "覚えた", value: counts.good, color: "#059669" },
+            { label: "余裕", value: counts.easy, color: "#2A5CFF" },
           ].map((s) => (
-            <div key={s.label} className={`rounded-2xl border p-4 ${s.className}`}>
-              <div className="text-2xl font-black">{s.value}</div>
-              <div className="text-[9px] font-black uppercase tracking-widest opacity-70">{s.label}</div>
+            <div key={s.label}>
+              <div
+                className="text-3xl font-black tabular-nums"
+                style={{ color: s.value > 0 ? s.color : "#C9CDD2" }}
+              >
+                {s.value}
+              </div>
+              <div className="text-[11px] font-bold text-[#8A9199] mt-1">{s.label}</div>
             </div>
           ))}
         </div>
 
-        <div className="w-full space-y-3">
+        <div className="flex flex-wrap items-center gap-8">
           {counts.again > 0 && (
-            <Button
-              onClick={() => api.restartWithAgain()}
-              className="w-full h-12 rounded-2xl bg-[#2A5CFF] hover:bg-blue-700 text-white font-bold"
-            >
-              <Repeat className="w-4 h-4 mr-2" />
-              AGAIN の {counts.again} 件をもう一周する
-            </Button>
+            <button type="button" onClick={() => api.restartWithAgain()} className="btn-primary">
+              <Repeat className="w-4 h-4" />
+              忘れた {counts.again} 枚をもう一周
+            </button>
           )}
-          <Button
-            onClick={onExit}
-            variant="outline"
-            className="w-full h-12 rounded-2xl border-2 border-[#E5E7EB] font-bold text-[#656E77]"
-          >
+          <button type="button" onClick={onExit} className="btn-quiet px-0">
             終了する
-          </Button>
+          </button>
         </div>
       </motion.div>
     );
@@ -231,51 +229,52 @@ export const ReviewMode: React.FC<Props> = ({ api, onGrade, onExit }) => {
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      className="max-w-xl mx-auto flex flex-col h-full items-center justify-center py-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="max-w-xl mx-auto flex flex-col h-full justify-center py-6"
     >
-      <div className="w-full flex justify-between items-center mb-8 md:mb-12">
+      <div className="w-full flex justify-between items-start gap-4 mb-6">
         <div>
-          <h2 className="text-2xl font-black text-[#1A1C1E]">復習モード</h2>
-          <p className="text-xs text-[#656E77] font-bold uppercase tracking-widest mt-1">
-            Card {position} of {total}
+          <h2 className="text-xl font-black text-[#1A1C1E]">復習</h2>
+          <p className="text-xs text-[#8A9199] mt-1 tabular-nums">
+            {position} / {total}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-6">
           <button
             type="button"
             onClick={() => updateSettings({ autoPlayOnFlip: !settings.autoPlayOnFlip })}
             title="めくったときに自動で発音する"
-            className={`text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full border transition-colors ${
+            className={`text-[11px] font-bold transition-colors ${
               settings.autoPlayOnFlip
-                ? "bg-[#E9F0FF] text-[#2A5CFF] border-[#2A5CFF]/20"
-                : "bg-white text-[#656E77] border-[#E5E7EB]"
+                ? "text-[#2A5CFF] border-b border-[#2A5CFF]"
+                : "text-[#8A9199] hover:text-[#1A1C1E]"
             }`}
           >
-            自動発音 {settings.autoPlayOnFlip ? "ON" : "OFF"}
+            自動発音 {settings.autoPlayOnFlip ? "オン" : "オフ"}
           </button>
-          <Button
-            variant="ghost"
+          <button
+            type="button"
             onClick={onExit}
-            className="text-[#656E77] hover:text-[#1A1C1E] font-bold text-xs"
+            className="text-[11px] font-bold text-[#8A9199] hover:text-[#1A1C1E]"
           >
-            終了する
-          </Button>
+            終了
+          </button>
         </div>
       </div>
 
-      {/* 進捗バー */}
-      <div className="w-full h-1 bg-[#E5E7EB] rounded-full mb-6 overflow-hidden">
+      {/* 進捗 */}
+      <div className="w-full h-0.5 bg-[#F1F3F5] mb-0">
         <div
-          className="h-full bg-[#2A5CFF] transition-all duration-300"
+          className="h-0.5 bg-[#1A1C1E] transition-all duration-300"
           style={{ width: `${total ? ((position - 1) / total) * 100 : 0}%` }}
         />
       </div>
 
+      {/* カード。囲まず、上下の罫線で領域を示す */}
       <div
-        className="relative w-full aspect-[4/5] md:aspect-[4/3] perspective-1000 group cursor-pointer"
+        className="relative w-full aspect-[4/5] md:aspect-[4/3] perspective-1000 cursor-pointer border-b border-[#EAECEF]"
         onClick={flip}
       >
         <motion.div
@@ -283,17 +282,8 @@ export const ReviewMode: React.FC<Props> = ({ api, onGrade, onExit }) => {
           animate={{ rotateY: isFlipped ? 180 : 0 }}
         >
           {/* 表面 */}
-          <div className="absolute inset-0 backface-hidden bg-white rounded-3xl border border-[#E5E7EB] shadow-xl flex flex-col items-center justify-center p-8 md:p-12 text-center">
-            <div className="flex flex-col items-center gap-2 mb-4">
-              <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em]">Word</span>
-              {current.mode && (
-                <span className="text-[9px] px-2 py-0.5 bg-[#F1F3F5] text-[#656E77] rounded-full font-bold uppercase tracking-widest border border-[#E5E7EB]">
-                  {current.mode}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-4">
+          <div className="absolute inset-0 backface-hidden bg-white flex flex-col items-center justify-center px-6 text-center">
+            <div className="flex items-center gap-3">
               <h3 className="text-3xl md:text-5xl font-black tracking-tighter text-[#1A1C1E]">
                 {current.word}
               </h3>
@@ -301,134 +291,123 @@ export const ReviewMode: React.FC<Props> = ({ api, onGrade, onExit }) => {
             </div>
 
             {phonetic && (
-              <p className="mt-3 text-sm md:text-base text-[#656E77] font-medium tracking-wide">
-                {phonetic}
-              </p>
+              <p className="mt-3 text-sm md:text-base text-[#656E77] tracking-wide">{phonetic}</p>
             )}
 
-            <p className="mt-8 text-[10px] md:text-xs text-[#656E77] flex items-center gap-2">
+            <p className="mt-10 text-[11px] text-[#8A9199] flex items-center gap-2">
               <RotateCw className="w-3 h-3" />
-              クリック / Space でめくる
+              クリックまたは Space でめくる
             </p>
           </div>
 
           {/* 裏面 */}
-          <div className="absolute inset-0 backface-hidden rotate-y-180 bg-[#E9F0FF] rounded-3xl border border-[#2A5CFF]/20 shadow-xl flex flex-col p-8 md:p-10 overflow-auto">
-            <div className="mb-6">
-              <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em] mb-2 block">Meaning</span>
-              <p className="text-2xl font-bold text-[#1A1C1E]">{current.meaning}</p>
-            </div>
+          <div className="absolute inset-0 backface-hidden rotate-y-180 bg-white flex flex-col pt-8 overflow-auto">
+            <Field label="意味">
+              <p className="text-2xl font-bold text-[#1A1C1E] leading-snug">{current.meaning}</p>
+            </Field>
 
             {current.grammar && (
-              <div className="mb-6">
-                <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em] mb-2 block">Grammar</span>
-                <p className="text-sm font-bold text-[#1A1C1E] inline-block px-2 py-0.5 bg-white/50 rounded">
-                  {current.grammar}
-                </p>
-              </div>
+              <Field label="品詞">
+                <p className="text-sm font-bold text-[#1A1C1E]">{current.grammar}</p>
+              </Field>
             )}
 
             {current.nuance && (
-              <div className="mb-6">
-                <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em] mb-2 block">Nuance / 使い分け</span>
-                <p className="text-sm font-medium text-[#1A1C1E] leading-relaxed bg-white/30 p-3 rounded-xl border border-white/40">
-                  {current.nuance}
-                </p>
-              </div>
+              <Field label="使い分け">
+                <p className="text-sm text-[#656E77] leading-loose">{current.nuance}</p>
+              </Field>
             )}
 
             {current.specializedContexts.length > 0 && (
-              <div className="mb-6">
-                <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em] mb-2 block">Professional Perspectives</span>
-                <div className="space-y-2">
+              <Field label="専門分野での意味">
+                <dl className="space-y-2">
                   {current.specializedContexts.slice(0, 2).map((ctx, i) => (
-                    <div key={i} className="text-[10px] font-medium text-[#1A1C1E] bg-white/40 p-2 rounded-lg border border-white/50">
-                      <span className="font-bold text-[#2A5CFF] mr-2">[{ctx.field}]</span>
-                      {ctx.context}
+                    <div key={i} className="text-xs leading-loose">
+                      <dt className="inline font-bold text-[#1A1C1E]">{ctx.field}</dt>
+                      <dd className="inline text-[#656E77]"> — {ctx.context}</dd>
                     </div>
                   ))}
-                </div>
-              </div>
+                </dl>
+              </Field>
             )}
 
             {firstExample && (
-              <div>
-                <span className="text-[10px] font-bold text-[#2A5CFF] uppercase tracking-[0.2em] mb-2 block">Example</span>
-                <p className="text-sm font-medium text-[#1A1C1E] leading-relaxed italic border-l-2 border-[#2A5CFF]/30 pl-3">
+              <Field label="例文">
+                <p className="text-sm text-[#1A1C1E] leading-loose pl-4 border-l-2 border-[#EAECEF]">
                   {firstExample.en}
                 </p>
                 {firstExample.ja && (
-                  <p className="text-xs text-[#656E77] mt-1 pl-3">{firstExample.ja}</p>
+                  <p className="text-xs text-[#8A9199] mt-1 pl-4">{firstExample.ja}</p>
                 )}
-              </div>
+              </Field>
             )}
 
-            <p className="mt-auto pt-4 text-center text-[10px] font-bold text-[#2A5CFF]/60 uppercase tracking-widest">
+            <p className="mt-auto pt-4 pb-2 text-center text-[11px] text-[#8A9199]">
               1 / 2 / 3 / 4 で評価
             </p>
           </div>
         </motion.div>
       </div>
 
-      {isFlipped && (
+      {isFlipped ? (
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mt-8 md:mt-12 w-full"
+          className="grid grid-cols-4 gap-4 md:gap-6 mt-8 w-full"
         >
           {RATING_BUTTONS.map((b) => (
-            <Button
+            <button
               key={b.label}
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 grade(b.rating);
               }}
-              className={`flex flex-col h-14 md:h-16 rounded-2xl border p-2 ${b.className}`}
+              className="flex flex-col items-start pb-2 border-b-2 transition-colors"
+              style={{ borderColor: b.color, color: b.color }}
             >
-              <span className="text-xs font-black">{b.label}</span>
-              <span className="text-[9px] md:text-[10px] opacity-70">
-                {b.sub} · {b.key}
-              </span>
-            </Button>
+              <span className="text-sm font-black">{b.label}</span>
+              <span className="text-[10px] text-[#8A9199]">{b.key}</span>
+            </button>
           ))}
         </motion.div>
+      ) : (
+        <div className="flex gap-8 mt-8 w-full">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              api.prev();
+            }}
+            disabled={position <= 1}
+            className="flex items-center gap-1.5 text-xs font-bold text-[#8A9199] hover:text-[#1A1C1E] disabled:opacity-30 transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            前の単語
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              api.next();
+            }}
+            className="flex items-center gap-1.5 text-xs font-bold text-[#8A9199] hover:text-[#1A1C1E] transition-colors"
+          >
+            次の単語
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
       )}
 
       {current.aiAnalysis && !isFlipped && (
-        <motion.div
+        <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="mt-6 p-4 bg-orange-50 rounded-2xl border border-orange-100 max-w-md"
+          className="mt-8 pl-4 border-l-2 border-[#EAECEF] text-xs text-[#656E77] leading-loose"
         >
-          <div className="flex items-center gap-2 mb-1">
-            <BrainCircuit className="w-4 h-4 text-orange-500" />
-            <span className="text-[10px] font-bold text-orange-600 uppercase tracking-widest">
-              AI Retention Insight
-            </span>
-          </div>
-          <p className="text-xs text-orange-800 leading-relaxed">{current.aiAnalysis}</p>
-        </motion.div>
+          {current.aiAnalysis}
+        </motion.p>
       )}
-
-      <div className="flex gap-4 mt-8 md:mt-12 w-full">
-        <Button
-          onClick={(e) => { e.stopPropagation(); api.prev(); }}
-          disabled={position <= 1}
-          variant="outline"
-          className="flex-1 h-12 md:h-14 rounded-2xl border-2 border-[#E5E7EB] hover:border-[#2A5CFF] hover:text-[#2A5CFF] group text-xs md:text-sm disabled:opacity-40"
-        >
-          <ChevronLeft className="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2 group-hover:-translate-x-1 transition-transform" />
-          前の単語
-        </Button>
-        <Button
-          onClick={(e) => { e.stopPropagation(); api.next(); }}
-          variant="outline"
-          className="flex-1 h-12 md:h-14 rounded-2xl border-2 border-[#E5E7EB] hover:border-[#2A5CFF] hover:text-[#2A5CFF] group text-xs md:text-sm"
-        >
-          次の単語
-          <ChevronRight className="w-4 h-4 md:w-5 md:h-5 ml-1 md:ml-2 group-hover:translate-x-1 transition-transform" />
-        </Button>
-      </div>
     </motion.div>
   );
 };

@@ -29,6 +29,9 @@ const LIMITS = {
   synonyms: 10,
   antonyms: 10,
   reviewHistory: 1000,
+  senses: 8,
+  targetPhrases: 8,
+  derivatives: 8,
 } as const;
 
 /** 現行ルールで update 時に変更が許可されているキー（内容側）。 */
@@ -36,6 +39,8 @@ const UPDATABLE_CONTENT_KEYS = [
   "word", "meaning", "grammar", "category", "etymology", "nuance",
   "specializedContexts", "examples", "synonyms", "antonyms",
   "etymologyNodes", "mode", "nextReviewAt", "aiAnalysis",
+  // v3（単語帳の紙面用）
+  "senses", "targetPhrases", "derivatives", "examLevel",
 ] as const;
 
 /** 現行ルールで update 時に変更が許可されているキー（復習側）。 */
@@ -161,8 +166,14 @@ function sanitizeForCreate(raw: Record<string, unknown>, uid: string): SanitizeR
     synonyms: clampList(raw.synonyms, LIMITS.synonyms),
     antonyms: clampList(raw.antonyms, LIMITS.antonyms),
     reviewHistory: clampList(raw.reviewHistory, LIMITS.reviewHistory),
+    // v3（単語帳の紙面用）。ルールの上限に合わせて切り詰める
+    senses: clampList(raw.senses, LIMITS.senses),
+    targetPhrases: clampList(raw.targetPhrases, LIMITS.targetPhrases),
+    derivatives: clampList(raw.derivatives, LIMITS.derivatives),
     wordLower: toWordLower(word),
-    schemaVersion: 2,
+    // 紙面用の項目を伴って入ってきたものは v3 扱いにする。
+    // でないと取り込んだ直後にまた補完対象として拾われる
+    schemaVersion: Array.isArray(raw.senses) && raw.senses.length > 0 ? 3 : 2,
     updatedAt: Date.now(),
   };
 
