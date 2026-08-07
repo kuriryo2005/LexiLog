@@ -735,7 +735,15 @@
     break-after: page;
     height: 194mm;
     overflow: hidden;
-    grid-template-rows: auto repeat(7, 1fr) auto auto;
+    /*
+     * minmax(0, 1fr) が要。素の 1fr は暗黙的に minmax(auto, 1fr) として
+     * 扱われ、内容が多い語の行は最低限必要な高さより縮まない。すると
+     * 総高さが 194mm を超え、はみ出た分（メモ欄・柱）だけ次ページに
+     * 送られてしまう（overflow: hidden は描画のクリップはしてもページ
+     * 分割の計算には効かない）。0 まで縮められるようにして、はみ出した
+     * 内容は各セルの overflow: hidden で確実にクリップする。
+     */
+    grid-template-rows: auto repeat(7, minmax(0, 1fr)) auto auto;
   }
 
   .wb-c-word,
