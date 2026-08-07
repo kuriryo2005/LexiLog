@@ -228,8 +228,15 @@ export default function App() {
         (error) => {
           if (ordered && (error as { code?: string }).code === "failed-precondition") {
             console.warn("複合インデックスが未作成のため、並べ替え無しで購読し直します。", error);
-            unsubscribe();
-            if (!cancelled) subscribe(false);
+            // Firestore の Watch ストリームが自身のエラーコールバックの中で
+            // 同期的に unsubscribe → 新しい listener を張り直すと、SDK 内部の
+            // target 管理が再入して壊れ、INTERNAL ASSERTION FAILED (b815) で
+            // クラッシュする。コールバックのスタックを抜けてから張り直す。
+            setTimeout(() => {
+              if (cancelled) return;
+              unsubscribe();
+              subscribe(false);
+            }, 0);
             return;
           }
           handleFirestoreError(error, OperationType.LIST, "words");
