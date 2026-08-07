@@ -79,8 +79,14 @@ export function useDecks(uid: string | null): DecksApi {
         },
         (error) => {
           if (ordered && (error as { code?: string }).code === "failed-precondition") {
-            unsubscribe();
-            if (!cancelled) subscribe(false);
+            // words と同じ理由（App.tsx 参照）で、エラーコールバックの中で
+            // 同期的に張り直すと Firestore SDK が INTERNAL ASSERTION FAILED
+            // (b815) でクラッシュする。コールバックのスタックを抜けてから張り直す。
+            setTimeout(() => {
+              if (cancelled) return;
+              unsubscribe();
+              subscribe(false);
+            }, 0);
             return;
           }
           console.error("デッキの購読に失敗しました:", error);
