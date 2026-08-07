@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   BookOpen,
   Plus,
@@ -167,6 +167,15 @@ export default function App() {
 
   const review = useReviewSession(savedWords);
   const enriching = useEnrichQueue(savedWords, !!user);
+
+  // 表示中の単語が既にリストにある（＝保存済みドキュメントを開いている、
+  // または同じ綴りが別途保存済み）かどうか。大文字小文字は区別しない。
+  const isResultSaved = useMemo(() => {
+    if (!result) return false;
+    if ((result as SavedWord).id) return true;
+    const lower = result.word.trim().toLowerCase();
+    return savedWords.some((w) => w.word.trim().toLowerCase() === lower);
+  }, [result, savedWords]);
 
   useEffect(() => saveFilter(filter), [filter]);
 
@@ -421,7 +430,11 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
       if (!user) toast.error("ログインが必要です");
       return;
     }
-    
+    if (isResultSaved) {
+      toast.info(`「${result.word}」は既にリストにあります`);
+      return;
+    }
+
     try {
       const now = Date.now();
       // id と examplePairs は読み取り時に作る派生値。書き戻さない
@@ -1068,9 +1081,14 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
                       .join(" · ")}
                   </p>
                 </div>
-                <button type="button" onClick={saveWord} className="btn-quiet shrink-0 px-0 text-sm">
+                <button
+                  type="button"
+                  onClick={saveWord}
+                  disabled={isResultSaved}
+                  className="btn-quiet shrink-0 px-0 text-sm"
+                >
                   <Plus className="w-4 h-4" />
-                  リストに追加
+                  {isResultSaved ? "保存済み" : "リストに追加"}
                 </button>
               </div>
 
