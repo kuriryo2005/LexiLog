@@ -5,7 +5,7 @@
  * このファイルはブラウザに配信されないため、キーがクライアントへ漏れない。
  */
 
-import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 /**
  * 使用モデル。
@@ -195,17 +195,5 @@ Provide:
 - importanceScore: 0.0 to 1.0 overall importance for English/IELTS/Engineering learners.`;
 }
 
-/**
- * 思考を最小限にする設定。辞書引きは推論タスクではないので、
- * thinking に時間を使わせるとレイテンシだけが伸びる。
- */
-/**
- * 思考を最小化する設定。辞書引きは推論タスクではないので、thinking に
- * 時間を使わせるとレイテンシだけが伸びる。
- *
- * 設定項目がモデル世代で異なる（3系は thinkingLevel、2.5系は thinkingBudget）。
- * 片方を非対応モデルに渡すと 400 になるため、MODEL に応じて切り替える。
- */
-export const FAST_THINKING = MODEL.startsWith("gemini-3")
-  ? { thinkingLevel: ThinkingLevel.MINIMAL }
-  : { thinkingBudget: 0 };
+/** gemini-2.5-flash では thinkingBudget:0 で思考をスキップする。 */
+export const FAST_THINKING = { thinkingBudget: 0 };
