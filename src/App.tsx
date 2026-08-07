@@ -351,6 +351,12 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
         setLoading(false);
       });
       setResult(detail);
+
+      // 綴りミスが自動修正された場合は一言添える（正しい綴りは detail.word に入っている）
+      if (detail.word && detail.word.trim().toLowerCase() !== query.toLowerCase()) {
+        setSearchQuery(detail.word);
+        toast.info(`「${query}」を「${detail.word}」として検索しました`);
+      }
     } catch (error) {
       console.error(error);
       const message = error instanceof Error ? error.message : "単語の検索に失敗しました。";

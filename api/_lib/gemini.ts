@@ -150,6 +150,13 @@ export function buildLookupPrompt(word: string, mode: ModeSlug): string {
   return `Look up the English word "${word}" specifically for ${context}.
 Prioritize meanings in ${context}.
 
+If "${word}" is misspelled, not a real English word, or an unusual inflected form,
+silently correct it to the most likely intended English word (dictionary/lemma form,
+e.g. "recieve" -> "receive", "beleive" -> "believe", "runing" -> "run") and look up
+THAT word instead. The "word" field in your response must contain this corrected
+spelling, not the original input. Only do this for genuine typos — do not "correct"
+a word that is already a valid, differently-spelled English word.
+
 Write the Japanese exactly in the style of a Japanese university-entrance vocabulary
 book (旺文社「英単語ターゲット」). This style is strict — follow it precisely:
 

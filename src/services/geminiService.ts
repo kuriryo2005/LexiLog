@@ -130,6 +130,17 @@ export async function lookupWord(
     console.warn("Dictionary cache write failed:", e)
   );
 
+  // 綴りミスが自動修正された場合、正しい綴りのキーにも保存しておく。
+  // 次に正しい綴りで検索したときに AI 呼び出しを待たせない。
+  const correctedKey = buildCacheKey(result.word, mode);
+  if (correctedKey !== cacheKey) {
+    localCache.set(correctedKey, result);
+    saveLocalCache();
+    setDoc(doc(db, "dictionary_cache", correctedKey), { ...result, cachedAt: serverTimestamp() }).catch(
+      (e) => console.warn("Dictionary cache write failed:", e)
+    );
+  }
+
   return result;
 }
 
