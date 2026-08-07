@@ -719,11 +719,40 @@
     max-width: none;
   }
 
+  /*
+   * 見開き1枚 = 印刷1ページを厳密に一致させる。
+   *
+   * 高さを auto のままにすると、語義や例文が長いユニットだけ紙面からはみ出し、
+   * break-after: page の位置と実際の紙面の切れ目がずれる（次のユニットが
+   * 前ページの余白に食い込む／ページ数がユニット数と合わなくなる）。
+   * A4 横 + 余白8mm の内容領域（281mm×194mm）ちょうどに高さを固定し、
+   * 語の行を 1fr で均等割りすることで、内容量に関わらず必ず1ページに収める。
+   */
   .wb-spread {
     border: none;
     margin: 0;
     break-inside: avoid;
     break-after: page;
+    height: 194mm;
+    overflow: hidden;
+    grid-template-rows: auto repeat(7, 1fr) auto auto;
+  }
+
+  .wb-c-word,
+  .wb-c-sense,
+  .wb-c-en,
+  .wb-c-ja {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* 語が7語に満たないユニットでも、メモ欄と柱は必ず紙面の最下段に来る */
+  .wb-memo {
+    grid-row: 9;
+  }
+
+  .wb-foot {
+    grid-row: 10;
   }
 
   .wb-spread:last-of-type {
