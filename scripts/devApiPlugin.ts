@@ -74,15 +74,17 @@ export function devApiPlugin(env: Record<string, string>): Plugin {
         if (!name) return next();
 
         try {
-          const mod = (await server.ssrLoadModule(`/api/${name}.ts`)) as { default?: Handler };
-          if (typeof mod.default !== "function") {
+          const mod = (await server.ssrLoadModule(`/api/${name}.ts`)) as Record<string, Handler | undefined>;
+          const method = (req.method ?? "GET").toUpperCase();
+          const fn = mod[method] ?? mod.default;
+          if (typeof fn !== "function") {
             res.statusCode = 404;
-            res.end(JSON.stringify({ error: `ハンドラが見つかりません: /api/${name}` }));
+            res.end(JSON.stringify({ error: `ハンドラが見つかりません: /api/${name} (${method})` }));
             return;
           }
 
           const request = await toWebRequest(req);
-          const response = await mod.default(request);
+          const response = await fn(request);
           await writeWebResponse(response, res);
         } catch (e) {
           server.config.logger.error(`[dev-api] /api/${name} failed`);

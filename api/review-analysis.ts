@@ -13,7 +13,7 @@ export const config = { runtime: "nodejs" };
 
 const MAX_HISTORY = 200;
 
-export default async function handler(request: Request): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   return withAuth(request, "review", async (_user, body) => {
     const word = String(body.word ?? "").trim();
     const meaning = String(body.meaning ?? "").trim();

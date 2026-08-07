@@ -8,7 +8,7 @@ import { getClient, MODEL, FAST_THINKING } from "./_lib/gemini.js";
 
 export const config = { runtime: "nodejs" };
 
-export default async function handler(request: Request): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   return withAuth(request, "story", async (_user, body) => {
     const word = String(body.word ?? "").trim().slice(0, 64);
     const meaning = String(body.meaning ?? "").trim().slice(0, 200);

@@ -9,7 +9,7 @@ import { Type } from "@google/genai";
 
 export const config = { runtime: "nodejs" };
 
-export default async function handler(request: Request): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   return withAuth(request, "story", async (_user, body) => {
     const root = String(body.root ?? "").trim().slice(0, 64);
     if (!root) return errorResponse(400, "語根が指定されていません。");

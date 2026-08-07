@@ -43,7 +43,7 @@ const SCHEMA = {
 
 const LEVELS = new Set(["B2", "C1", "C2", "technical"]);
 
-export default async function handler(request: Request): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   return withAuth(request, "extract", async (_user, body) => {
     const text = String(body.text ?? "").trim();
     if (!text) return errorResponse(400, "英文が入力されていません。");

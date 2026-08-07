@@ -28,7 +28,7 @@ const MAX_WORD_LENGTH = 64;
 /** 部分結果を送る最小間隔。細かく送りすぎても描画が追いつかない。 */
 const PARTIAL_INTERVAL_MS = 200;
 
-export default async function handler(request: Request): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   return withAuth(request, "lookup", async (_user, body) => {
     const word = String(body.word ?? "").trim().toLowerCase();
     const mode: ModeSlug = body.mode === "aca" ? "aca" : "gen";

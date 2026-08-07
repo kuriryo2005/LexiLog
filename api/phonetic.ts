@@ -23,7 +23,7 @@ const SCHEMA = {
   required: ["phonetic"],
 } as const;
 
-export default async function handler(request: Request): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   return withAuth(request, "phonetic", async (_user, body) => {
     const word = String(body.word ?? "").trim();
     if (!word) return errorResponse(400, "単語が指定されていません。");
