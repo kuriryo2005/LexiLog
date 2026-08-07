@@ -14,8 +14,13 @@ import { toModeSlug, toWordLower } from "../lib/normalize";
  * localStorage のキャッシュキー。
  * 旧 "lexilog_local_cache" とは cacheKey の形式が変わったため名前を変えている
  * （キャッシュはユーザーデータではないので破棄してよい）。
+ *
+ * v2 -> v3: 綴りミス自動修正のプロンプト変更に伴い破棄する。v2 時代に生成
+ * された結果は word フィールドが未修正（綴りミスのまま）で保存されている
+ * ため、シェアド Firestore キャッシュと同様、端末に残っていると古い内容が
+ * 優先されてしまう。
  */
-const CACHE_KEY = "cortex_dict_cache_v2";
+const CACHE_KEY = "cortex_dict_cache_v3";
 
 const localCache = new Map<string, WordDetail>(
   (() => {
