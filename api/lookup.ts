@@ -79,11 +79,14 @@ export async function POST(request: Request): Promise<Response> {
 
             lastSentKeys = keyCount;
             lastSentAt = now;
-            send({ type: "partial", payload: { ...partial, word, mode: modeLabel(mode) } });
+            // word は partial/final（AI の応答）のものをそのまま使う。ここで
+            // 入力の生の word を後から展開すると、綴りミスを AI が直しても
+            // 送信直前に元の綴りへ上書きされてしまう。
+            send({ type: "partial", payload: { ...partial, mode: modeLabel(mode) } });
           }
 
           const final = JSON.parse(buffer) as Record<string, unknown>;
-          send({ type: "done", payload: { ...final, word, mode: modeLabel(mode) } });
+          send({ type: "done", payload: { ...final, mode: modeLabel(mode) } });
         } catch (e) {
           console.error("[api:lookup] stream error", e);
           send({
