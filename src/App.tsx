@@ -338,6 +338,13 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
     const query = (overrideQuery || searchQuery).trim();
     if (!query) return;
 
+    // 「a」のような断片や記号だけの入力は、無駄な AI 呼び出しを避けるため
+    // ネットワークに出す前にここで弾く（api/lookup.ts の同じチェックと対）。
+    if (query.length < 2 || !/^[a-z][a-z' -]*$/i.test(query)) {
+      toast.error("英単語として認識できない入力です。");
+      return;
+    }
+
     // NOTE: 以前ここに search_history への addDoc があったが、firestore.rules に
     // search_history のルールが無く、全書き込みが PERMISSION_DENIED で失敗していた
     // （エラーは .catch で握り潰されていた）。検索履歴が必要になった時点で
@@ -773,6 +780,17 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
           <nav className="mt-5 space-y-0.5">
             <button
               type="button"
+              onClick={() => setActiveTab("wordbook")}
+              className={`w-full flex items-center gap-2.5 h-9 text-xs font-bold transition-colors ${
+                activeTab === "wordbook" ? "text-[#2A5CFF]" : "text-[#656E77] hover:text-[#1A1C1E]"
+              }`}
+            >
+              <BookOpen className="w-4 h-4" />
+              単語帳
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab("home")}
               className={`w-full flex items-center gap-2.5 h-9 text-xs font-bold transition-colors ${
                 activeTab === "home" ? "text-[#2A5CFF]" : "text-[#656E77] hover:text-[#1A1C1E]"
@@ -800,17 +818,6 @@ const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
             >
               <MapIcon className="w-4 h-4" />
               単語のつながり
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab("wordbook")}
-              className={`w-full flex items-center gap-2.5 h-9 text-xs font-bold transition-colors ${
-                activeTab === "wordbook" ? "text-[#2A5CFF]" : "text-[#656E77] hover:text-[#1A1C1E]"
-              }`}
-            >
-              <BookOpen className="w-4 h-4" />
-              単語帳
             </button>
 
             <button

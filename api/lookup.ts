@@ -26,6 +26,13 @@ import { checkAndConsumeLookupQuota } from "./_lib/quota.js";
 export const config = { runtime: "nodejs" };
 
 const MAX_WORD_LENGTH = 64;
+/** 「a」のような1文字や、入力途中の断片で AI を呼ばないための下限。 */
+const MIN_WORD_LENGTH = 2;
+/**
+ * 英単語・熟語として妥当な形か（文字・アポストロフィ・ハイフン・空白のみ）。
+ * 記号や数字だけの意味不明な入力を AI に投げてトークンを無駄にしないためのガード。
+ */
+const VALID_WORD_PATTERN = /^[a-z][a-z' -]*$/i;
 /** 部分結果を送る最小間隔。細かく送りすぎても描画が追いつかない。 */
 const PARTIAL_INTERVAL_MS = 200;
 
@@ -35,8 +42,14 @@ export async function POST(request: Request): Promise<Response> {
     const mode: ModeSlug = body.mode === "aca" ? "aca" : "gen";
 
     if (!word) return errorResponse(400, "単語が指定されていません。");
+    if (word.length < MIN_WORD_LENGTH) {
+      return errorResponse(400, "検索する単語が短すぎます。");
+    }
     if (word.length > MAX_WORD_LENGTH) {
       return errorResponse(400, `単語が長すぎます（${MAX_WORD_LENGTH}文字まで）。`);
+    }
+    if (!VALID_WORD_PATTERN.test(word)) {
+      return errorResponse(400, "英単語として認識できない入力です。");
     }
 
     // フェアユース上限（日300/週1000/月2000）。キャッシュヒットはここに来ないので
