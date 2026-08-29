@@ -119,14 +119,20 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidId(deckId) &&
                       incoming().userId == request.auth.uid &&
                       incoming().name is string &&
-                      incoming().name.size() > 0 && incoming().name.size() <= 40 &&
+                      // size() はバイト数。日本語は1文字最大3バイト程度なので、
+                      // クライアント側の20文字上限（UTF-16コード単位）を確実に
+                      // 通すため余裕を見て80バイトまで許可する。
+                      incoming().name.size() > 0 && incoming().name.size() <= 80 &&
                       incoming().createdAt is number;
 
       allow update: if isSignedIn() && existing().userId == request.auth.uid &&
                       incoming().userId == existing().userId &&
                       incoming().createdAt == existing().createdAt &&
                       incoming().name is string &&
-                      incoming().name.size() > 0 && incoming().name.size() <= 40 &&
+                      // size() はバイト数。日本語は1文字最大3バイト程度なので、
+                      // クライアント側の20文字上限（UTF-16コード単位）を確実に
+                      // 通すため余裕を見て80バイトまで許可する。
+                      incoming().name.size() > 0 && incoming().name.size() <= 80 &&
                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'color', 'order', 'updatedAt']);
 
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;

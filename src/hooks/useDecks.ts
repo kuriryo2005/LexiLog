@@ -23,6 +23,8 @@ import { db } from "../firebase";
 import { Deck, SavedWord } from "../types";
 
 export const MAX_DECKS = 20;
+/** デッキ名（単語帳名）の上限文字数。例:「9月単語帳」 */
+export const MAX_DECK_NAME_LENGTH = 20;
 
 export const DECK_COLORS = [
   "#2A5CFF",
@@ -104,7 +106,7 @@ export function useDecks(uid: string | null): DecksApi {
   const create = useCallback(
     async (name: string) => {
       if (!uid) return;
-      const trimmed = name.trim().slice(0, 40);
+      const trimmed = name.trim().slice(0, MAX_DECK_NAME_LENGTH);
       if (!trimmed) throw new Error("デッキ名を入力してください。");
       if (decks.length >= MAX_DECKS) throw new Error(`デッキは ${MAX_DECKS} 個までです。`);
 
@@ -123,7 +125,7 @@ export function useDecks(uid: string | null): DecksApi {
   );
 
   const rename = useCallback(async (deckId: string, name: string) => {
-    const trimmed = name.trim().slice(0, 40);
+    const trimmed = name.trim().slice(0, MAX_DECK_NAME_LENGTH);
     if (!trimmed) throw new Error("デッキ名を入力してください。");
     await updateDoc(doc(db, "decks", deckId), { name: trimmed, updatedAt: Date.now() });
   }, []);
