@@ -143,6 +143,17 @@ service cloud.firestore {
                       (incoming().lastStudiedOn is string && incoming().lastStudiedOn.size() <= 10));
     }
 
+    // 検索のフェアユース上限カウンタ（日/週/月）。api/_lib/quota.ts が
+    // 本人の ID トークンで読み書きする。他人のドキュメントは触れない。
+    match /usage_counters/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow write: if isSignedIn() && request.auth.uid == uid &&
+                     incoming().userId == uid &&
+                     incoming().dayKey is string && incoming().dayCount is number &&
+                     incoming().weekKey is string && incoming().weekCount is number &&
+                     incoming().monthKey is string && incoming().monthCount is number;
+    }
+
     // Shared dictionary cache.
     //
     // NOTE: cacheKey must be ASCII to satisfy isValidId(). The client previously

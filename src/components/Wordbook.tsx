@@ -10,7 +10,7 @@
  */
 
 import React, { useCallback, useMemo, useState } from "react";
-import { Printer } from "lucide-react";
+import { Printer, Sparkle } from "lucide-react";
 import { SavedWord } from "../types";
 import {
   REVIEW_DAYS,
@@ -331,7 +331,9 @@ const Spread: React.FC<{
               {phrases.map((p, i) =>
                 i === 0 ? (
                   <div key={`p${i}`} className="wb-tg-line">
-                    <span className="wb-tg">TG</span>
+                    <span className="wb-tg">
+                      <Sparkle className="w-full h-full" fill="currentColor" strokeWidth={0} />
+                    </span>
                     <Frame en={p.en} primary />
                     {p.ja && (
                       <span className="wb-gloss">

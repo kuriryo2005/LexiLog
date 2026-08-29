@@ -21,6 +21,7 @@ import {
   type ModeSlug,
 } from "./_lib/gemini.js";
 import { parsePartialJson } from "./_lib/partialJson.js";
+import { checkAndConsumeLookupQuota } from "./_lib/quota.js";
 
 export const config = { runtime: "nodejs" };
 
@@ -29,7 +30,7 @@ const MAX_WORD_LENGTH = 64;
 const PARTIAL_INTERVAL_MS = 200;
 
 export async function POST(request: Request): Promise<Response> {
-  return withAuth(request, "lookup", async (_user, body) => {
+  return withAuth(request, "lookup", async (user, body) => {
     const word = String(body.word ?? "").trim().toLowerCase();
     const mode: ModeSlug = body.mode === "aca" ? "aca" : "gen";
 
@@ -37,6 +38,13 @@ export async function POST(request: Request): Promise<Response> {
     if (word.length > MAX_WORD_LENGTH) {
       return errorResponse(400, `単語が長すぎます（${MAX_WORD_LENGTH}文字まで）。`);
     }
+
+    // フェアユース上限（日300/週1000/月2000）。キャッシュヒットはここに来ないので
+    // 実際に AI 呼び出しが発生する検索だけがカウントされる。
+    const authHeader = request.headers.get("authorization") ?? "";
+    const idToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const quota = await checkAndConsumeLookupQuota(idToken, user.uid);
+    if (quota.ok === false) return errorResponse(429, quota.message);
 
     const ai = getClient();
     const stream = await ai.models.generateContentStream({
